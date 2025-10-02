@@ -3,16 +3,7 @@ import os
 import sys
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-
-TEMP_EXTENSIONS = [
-	'.crdownload',
-	'.part',
-	'.download',
-	'.opdownload',
-	'.!ut', '.bc!', '.xltd',
-	'.filepart',
-	'.tmp', '.unfinished', '.aria2'
-]
+from constants import TEMP_EXTENSIONS
 
 def wait_for_download_completion(filepath):
 	"""
