@@ -2,13 +2,14 @@
 # Variables
 ################################################################################
 
+MAKEFLAGS	+= --no-print-directory
+
 VENV		:= .venv
 PYTHON		:= $(VENV)/bin/python
 PIP			:= $(VENV)/bin/pip
 
 # Set a directory to monitor (By default Downloads directory)
 DIR			?= ~/Downloads
-SCRIPT		?= file_watcher.py
 
 RESET		= \033[0m
 BLUE		= \033[34m
@@ -23,17 +24,17 @@ APPLE_GREEN	= \033[38;2;141;182;0m
 all: run
 
 help:
-	@echo "${MAGENTA}------------------------------------------------------------------------------------${RESET}"
-	@echo "${MAGENTA}|Available commands:                                                               |${RESET}"
-	@echo "${MAGENTA}------------------------------------------------------------------------------------${RESET}"
-	@echo "${MAGENTA}|${RESET} ${YELLOW}make help${RESET}    : Show this help message.                                           ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}|${RESET} ${YELLOW}make venv${RESET}    : Create the virtual environment and install dependencies.          ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}|${RESET} ${YELLOW}make run${RESET}     : Check venv, then start the file watcher on $(DIR).           ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}|${RESET} ${YELLOW}make watch${RESET}   : Same as 'run'.                                                    ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}|${RESET} ${YELLOW}make analyze${RESET} : Check venv, then run the analyzer script on $(DIR).          ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}|${RESET} ${YELLOW}make report${RESET}  : Check venv, then generate a report for $(DIR).               ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}|${RESET} ${YELLOW}make clean${RESET}   : Remove the virtual environment (${VENV}) and other generated files. ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}------------------------------------------------------------------------------------${RESET}"
+	@echo "${MAGENTA}-----------------------------------------------------------------------------------${RESET}"
+	@echo "${MAGENTA}|Available commands:                                                              |${RESET}"
+	@echo "${MAGENTA}-----------------------------------------------------------------------------------${RESET}"
+	@echo "${MAGENTA}|${RESET} ${YELLOW}make help${RESET}    : Show this help message.                                          ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}|${RESET} ${YELLOW}make venv${RESET}    : Create the virtual environment and install dependencies.         ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}|${RESET} ${YELLOW}make run${RESET}     : Check venv, then start the file watcher on $(DIR).          ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}|${RESET} ${YELLOW}make watch${RESET}   : Same as 'run'.                                                   ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}|${RESET} ${YELLOW}make analyze${RESET} : Check venv, then run the analyzer script on $(DIR).         ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}|${RESET} ${YELLOW}make report${RESET}  : Check venv, then generate a report for $(DIR).              ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}|${RESET} ${YELLOW}make clean${RESET}   : Remove the virtual environment (${VENV}) and other generated files.${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}-----------------------------------------------------------------------------------${RESET}"
 	@echo ""
 	@echo "${MAGENTA}To change the target directory, use: make run DIR=/path/to/folder${RESET}"
 	@echo ""
@@ -59,16 +60,17 @@ $(VENV)/bin/activate: requirements.txt
 
 run: check-venv
 	@echo "${YELLOW}▶️  Starting Automated File Watcher on $(DIR)...${RESET}"
-	@$(PYTHON) $(SCRIPT) $(DIR)
+	@make watch
 
 watch: check-venv
-	@$(PYTHON) file_watcher.py $(DIR)
+	@$(PYTHON) -m monitoring.file_watcher $(DIR)
 
 analyze: check-venv
-	@$(PYTHON) analyzer.py $(DIR)
+	@$(PYTHON) -m analyzers.static_analyzer $(DIR)
+	@$(PYTHON) -m analyzers.dynamic_analyzer $(DIR)
 
 report: check-venv
-	@$(PYTHON) report_generator.py $(DIR)
+	@$(PYTHON) -m reporting.report_generator $(DIR)
 
 ################################################################################
 # Utility
@@ -79,7 +81,12 @@ check-venv:
 
 clean:
 	@echo "${BLUE}🧹 Cleaning up project files...${RESET}"
-	@rm -rf __pycache__ $(VENV) *.pyc *.json *.md *.log
+	@find . -type d -name "__pycache__" -exec rm -rf {} +
+	@find . -type f -name "*.pyc" -delete
+	@find . -type f -name "*.pyo" -delete
+	@find . -type f -name "*.json" -delete
+	@find . -type f -name "*.log" -delete
+	@rm -rf $(VENV)
 	@echo "${YELLOW}✨ Everything is clean ✅${RESET}"
 
 .PHONY: all venv run watch analyze report clean check-venv
