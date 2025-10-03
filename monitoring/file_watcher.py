@@ -8,8 +8,9 @@ from constants import TEMP_EXTENSIONS
 def wait_for_download_completion(filepath):
 	"""
 	Waits until a file's size stops changing, indicating the download is complete.
+	:param filepath: The path to the file being downloaded.
+	:return: True if the file download completes, False if the file is not found.
 	"""
-	print(f"[*] Waiting for download to complete: {filepath}")
 	last_size = -1
 	check_interval = 1
 	stable_checks_needed = 3
@@ -26,18 +27,16 @@ def wait_for_download_completion(filepath):
 				stable_checks = 0
 		except FileNotFoundError:
 			return False
-
-	print(f"[*] Download complete. File ready for analysis: {filepath}")
 	return True
 
 class NewFileHandler(FileSystemEventHandler):
 	"""
-	Handles file system events, specifically the creation of new files.
+	Handles file system events, specifically the creation of new files, 
+	and waits for them to complete downloading before logging.
 	"""
 	def on_created(self, event):
 		"""
-		This method is called when a new file or directory is created.
-		We check if the event is a file and not a directory and wait for it to be fully downloaded.
+		Called when a new file or directory is created.
 		"""
 		if not event.is_directory:
 			_, file_extension = os.path.splitext(event.src_path)
@@ -49,24 +48,22 @@ class NewFileHandler(FileSystemEventHandler):
 			print(f"New file detected: {event.src_path}")
 
 			if wait_for_download_completion(event.src_path):
+				print(f"[*] File ready for analysis: {event.src_path}")
 				print("Proceeding with analysis...")
+				# analyze
 			else:
 				print("Could not analyze file, as it was not found or was removed.")
 
-def main():
+def start_watcher(path_to_watch):
 	"""
-	Sets up and starts the file system watcher.
+	Sets up and starts the file system watcher for a given directory.
+	:param path_to_watch: The path of the directory to monitor.
 	"""
-	if len(sys.argv) < 2:
-		print("Usage: python file_watcher.py <path_to_directory>")
-		return
-
-	path_to_watch = sys.argv[1]
 	monitored_directory = os.path.abspath(os.path.expanduser(path_to_watch))
 
 	if not os.path.exists(monitored_directory):
 		print(f"Error: Directory '{monitored_directory}' does not exist.")
-		return
+		sys.exit(1)
 
 	event_handler = NewFileHandler()
 	observer = Observer()
@@ -83,6 +80,3 @@ def main():
 		observer.stop()
 	observer.join()
 	print("\n[*] File watcher stopped.")
-
-if __name__ == "__main__":
-	main()
