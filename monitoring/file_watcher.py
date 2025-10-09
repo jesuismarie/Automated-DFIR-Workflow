@@ -1,62 +1,118 @@
-import time
 import os
 import sys
+import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from constants import TEMP_EXTENSIONS
-
-def wait_for_download_completion(filepath):
-	"""
-	Waits until a file's size stops changing for a set number of checks,
-	indicating the download or copy operation is complete and the file is stable.
-
-	:param filepath: The path to the file.
-	:return: True if the file download completes/stabilizes, False if the file is removed during the wait.
-	"""
-	last_size = -1
-	check_interval = 1
-	stable_checks_needed = 3
-	stable_checks = 0
-
-	while stable_checks < stable_checks_needed:
-		time.sleep(check_interval)
-		try:
-			current_size = os.path.getsize(filepath)
-			if current_size == last_size:
-				stable_checks += 1
-			else:
-				last_size = current_size
-				stable_checks = 0
-		except FileNotFoundError:
-			print(f"[*] File disappeared during stability check: {os.path.basename(filepath)}")
-			return False
-	return True
+from monitoring.unpacking_worker import unpack_archive
+from monitoring.utils import wait_for_download_completion
+from constants import TEMP_EXTENSIONS, ARCHIVE_EXTENSIONS
 
 class NewFileHandler(FileSystemEventHandler):
 	"""
 	Custom handler to process new file system events from the watcher.
 	"""
-	def on_created(self, event):
-		"""Handles the creation of a new file or directory."""
-		path = event.src_path
+	def __init__(self):
+		super().__init__()
+		self._processed_paths = set()
+
+	def _queue_file_for_analysis(self, filepath):
+		"""
+		Placeholder for adding a file to the secure analysis queue.
+		"""
+		print(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(filepath))}")
+
+	def _scan_directory_contents(self, directory_path):
+		"""
+		Recursively scans a directory (new or moved) and queues all found files.
+		"""
+		print(f"  [SCAN] Starting recursive scan of directory contents: {directory_path}")
+
+		for root, files in os.walk(directory_path):
+			if files:
+				print(f"  -> Found {len(files)} files in {os.path.basename(root)}")
+			for file_name in files:
+				file_path = os.path.join(root, file_name)
+				if os.path.splitext(file_path)[1].lower() not in TEMP_EXTENSIONS:
+					if os.path.splitext(file_path)[1].lower() in ARCHIVE_EXTENSIONS:
+						self._handle_archive_and_recurse(file_path)
+					else:
+						self._queue_file_for_analysis(file_path)
+
+	def _handle_archive_and_recurse(self, path):
+		"""
+		Unpacks an archive and queues the contents.
+		"""
+		print(f"\n[*] Archive file found: {path}. Initiating unpacking sequence.")
+		extracted_dir = unpack_archive(path)
 		
+		if extracted_dir:
+			print(f"  [+] Starting recursive scan of extracted contents.")
+			self._scan_directory_contents(extracted_dir)
+
+	def _process_new_file(self, path):
+		"""
+		Handles the stability check and processing of a single file.
+		"""
+		_, ext = os.path.splitext(path)
+		ext = ext.lower()
+
+		if ext in TEMP_EXTENSIONS:
+			print(f"Ignoring temporary download file: {os.path.basename(path)}")
+			if wait_for_download_completion(path):
+				print(f"[*] File ready for analysis: {path}")
+
+		if ext in ARCHIVE_EXTENSIONS:
+			self._handle_archive_and_recurse(path)
+		else:
+			self._queue_file_for_analysis(path)
+
+	def on_created(self, event):
+		"""
+		Handles the creation of a new file or directory.
+		"""
+		path = event.src_path
+
+		if path in self._processed_paths:
+			return
+		self._processed_paths.add(path)
+
 		if event.is_directory:
 			print(f"\n[*] New directory detected: {path}")
-			print(f"Starting scanning directory: {path}")
+			self._scan_directory_contents(path)
 		else:
-			_, file_extension = os.path.splitext(event.src_path)
-			if file_extension.lower() in TEMP_EXTENSIONS:
-				print(f"Ignoring temporary download file: {event.src_path}")
-				if wait_for_download_completion(event.src_path):
-					print(f"[*] File ready for analysis: {event.src_path}")
-				return
-			print(f"[*] New file detected: {event.src_path}")
-			# analyze
+			self._process_new_file(path)
+
+	def on_moved(self, event):
+		"""
+		Handles file or directory renames/moves (critical for finalized downloads).
+		"""
+		dest_path = event.dest_path
+
+		if dest_path in self._processed_paths:
+			return
+		self._processed_paths.add(dest_path)
+
+		if event.is_directory:
+			print(f"\n[*] Directory moved/renamed detected: {dest_path}")
+			self._scan_directory_contents(dest_path)
+		else:
+			print(f"\n[*] File moved/renamed detected (Finalizing download): {dest_path}")
+			self._process_new_file(dest_path)
+
+	def on_deleted(self, event):
+		"""
+		Handles the removal of a file or directory.
+		"""
+		path = event.src_path
+
+		if event.is_directory:
+			print(f"\n[*] Directory DELETED: {path}")
+		else:
+			print(f"\n[*] File DELETED: {path}")
 
 def start_watcher(path_to_watch):
 	"""
 	Sets up and starts the file system watcher process.
-	:param path_to_watch: The path of the directory to monitor.
 	"""
 	monitored_directory = os.path.abspath(os.path.expanduser(path_to_watch))
 
@@ -68,8 +124,7 @@ def start_watcher(path_to_watch):
 	observer = Observer()
 	observer.schedule(event_handler, monitored_directory, recursive=True)
 
-	print(f"[*] Monitoring directory: {monitored_directory}")
-	print("[*] Press Ctrl+C to stop the watcher..")
+	print("[*] Press Ctrl+C to stop the watcher.")
 
 	observer.start()
 	try:
@@ -78,3 +133,4 @@ def start_watcher(path_to_watch):
 	except KeyboardInterrupt:
 		observer.stop()
 	observer.join()
+	print("\n[*] File watcher stopped.")
