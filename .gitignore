@@ -6,3 +6,5 @@ venv/
 .env
 reports/
 *.tmp
+tmp/
+config/
