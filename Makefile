@@ -4,13 +4,21 @@
 
 MAKEFLAGS	+= --no-print-directory
 
-VENV		:= .venv
-PYTHON		:= $(VENV)/bin/python
-PIP			:= $(VENV)/bin/pip
+VENV			:= .venv
+PYTHON			:= $(VENV)/bin/python3
+PIP				:= $(VENV)/bin/pip
+DOCKER_COMPOSE	:= docker-compose
+MKDIR			:= mkdir -p
+TOUCH			:= touch
+CHOWN			:= chown
 
-# Set a directory to monitor (By default Downloads directory)
-DIR			?= ~/Downloads
+CONFIG_FILE		:= config/config.json
+SHARED_DIR		:= $(HOME)/malware-analysis
+QUEUE_FILE		:= $(SHARED_DIR)/queue.json
+REQUIREMENTS	:= requirements.txt
+MONITORED_DIR	:= $(shell $(PYTHON) -c "import json, os; config=json.load(open('$(CONFIG_FILE)', 'r')); path=os.path.expanduser(config.get('monitoring', {}).get('watch_directory', '~/Downloads')); print(path)" 2>/dev/null || echo "$$HOME/Downloads")
 
+# Colors for output
 RESET		= \033[0m
 BLUE		= \033[34m
 MAGENTA		= \033[35m
@@ -21,23 +29,82 @@ APPLE_GREEN	= \033[38;2;141;182;0m
 # Main Targets
 ################################################################################
 
-all: run
+all: venv setup run
 
 help:
-	@echo "${MAGENTA}------------------------------------------------------------------------------------${RESET}"
-	@echo "${MAGENTA}| Available commands:                                                              |${RESET}"
-	@echo "${MAGENTA}------------------------------------------------------------------------------------${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make help${RESET}    : Show this help message.                                           ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make venv${RESET}    : Create the virtual environment and install dependencies.          ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make run${RESET}     : Check venv, then start the file watcher on $(DIR).           ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make watch${RESET}   : Same as 'run'.                                                    ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make analyze${RESET} : Check venv, then run the analyzer script on $(DIR).          ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make report${RESET}  : Check venv, then generate a report for $(DIR).               ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make clean${RESET}   : Remove the virtual environment (${VENV}) and other generated files. ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}------------------------------------------------------------------------------------${RESET}"
+	@echo "${MAGENTA}================================================================================${RESET}"
+	@echo "${MAGENTA}| Automated DFIR Workflow Commands                                             |${RESET}"
+	@echo "${MAGENTA}================================================================================${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make help${RESET}         : Show this help message.                                  ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make setup${RESET}        : Setup shared directories and config.                     ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make venv${RESET}         : Create virtual environment and install dependencies.     ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make run${RESET}          : Start full workflow (monitor, analyze, report).          ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make monitor${RESET}      : Run only monitoring phase.                               ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make analyze${RESET}      : Run static + dynamic analysis on queue.                  ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make report${RESET}       : Generate analysis reports with alerts.                   ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make clean${RESET}        : Clean generated files (keeps venv).                     ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make clean-all${RESET}    : Complete cleanup (removes venv too).                     ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}================================================================================${RESET}"
 	@echo ""
-	@echo "${MAGENTA}To change the target directory, use: ${YELLOW}make run DIR=/path/to/folder${RESET}"
+	@echo "${MAGENTA}Configuration: Reads from config/config.json${RESET}"
+	@echo "${YELLOW}• Monitored directory: ${MONITORED_DIR}${RESET}"
+	@echo "${YELLOW}• Shared directory:    ${SHARED_DIR}${RESET}"
 	@echo ""
+
+################################################################################
+# Setup and Configuration
+################################################################################
+
+setup: check-venv config setup-shared
+
+config:
+	@echo "${BLUE}Setting up configuration...${RESET}"
+	@$(MKDIR) config
+	@if [ ! -f "$(CONFIG_FILE)" ]; then \
+		echo "${YELLOW}⚠️  Config file not found, creating default...${RESET}"; \
+		$(PYTHON) -c "import json, os; config = { \
+			'monitoring': { \
+				'watch_directory': os.path.expanduser('~/Downloads'), \
+				'recursive': True, \
+				'file_types': ['*'], \
+				'shared_directory': os.path.expanduser('~/malware-analysis') \
+			}, \
+			'static_analysis': { \
+				'output_directory': os.path.expanduser('~/malware-analysis/static-output'), \
+			}, \
+			'dynamic_analysis': { \
+				'output_directory': os.path.expanduser('~/malware-analysis/dynamic-output'), \
+			}, \
+			'reporting': { \
+				'report_directory': os.path.expanduser('~/malware-analysis/reports'), \
+				'report_format': 'markdown', \
+				'retention_days': 30 \
+			} \
+		}; json.dump(config, open('$(CONFIG_FILE)', 'w'), indent=2)"; \
+	fi
+	@cat $(CONFIG_FILE)
+	@echo ""
+
+check-config:
+	@if [ ! -f "$(CONFIG_FILE)" ]; then \
+		echo "${YELLOW}⚠️  Config file not found. Run 'make setup' first.${RESET}"; \
+		exit 1; \
+	fi
+
+setup-shared:
+	@echo "${BLUE}Setting up shared directories: $(SHARED_DIR)${RESET}"
+	@$(MKDIR) "$(SHARED_DIR)/queue"
+	@$(MKDIR) "$(SHARED_DIR)/static-output"
+	@$(MKDIR) "$(SHARED_DIR)/dynamic-output"
+	@$(MKDIR) "$(SHARED_DIR)/reports"
+	@$(MKDIR) "$(SHARED_DIR)/logs"
+	@$(TOUCH) "$(QUEUE_FILE)"
+	@echo "[]" > "$(QUEUE_FILE)"
+	@$(CHOWN) 1000:1000 -R "$(SHARED_DIR)"
+	@chmod 755 "$(SHARED_DIR)"
+	@chmod -R 755 "$(SHARED_DIR)/queue" "$(SHARED_DIR)/static-output" "$(SHARED_DIR)/dynamic-output" "$(SHARED_DIR)/reports" "$(SHARED_DIR)/logs"
+	@chmod 644 "$(QUEUE_FILE)"
+	@echo "${APPLE_GREEN}✅ Shared directories ready at: $(SHARED_DIR)${RESET}"
 
 ################################################################################
 # Virtual Environment
@@ -45,38 +112,99 @@ help:
 
 venv: $(VENV)/bin/activate
 
-$(VENV)/bin/activate: requirements.txt
+$(VENV)/bin/activate: $(REQUIREMENTS)
 	@echo "${BLUE}🔧 Creating virtual environment...${RESET}"
 	@python3 -m venv $(VENV)
 	@echo "${BLUE}⬆️  Upgrading pip...${RESET}"
 	@$(PIP) install --upgrade pip
-	@echo "${APPLE_GREEN}📦 Installing dependencies from requirements.txt...${RESET}"
-	@$(PIP) install -r requirements.txt
+	@echo "${APPLE_GREEN}📦 Installing dependencies...${RESET}"
+	@$(PIP) install -r $(REQUIREMENTS)
 	@echo "${APPLE_GREEN}✅ Virtual environment ready!${RESET}"
+
+check-venv:
+	@if [ ! -d "$(VENV)" ]; then \
+		echo "${YELLOW}⚠️ Virtual environment not found. Run 'make venv' first.${RESET}"; \
+		exit 1; \
+	fi
+
+################################################################################
+# Docker Management
+################################################################################
+
+sandbox-up:
+	@echo "${YELLOW}🚀 Starting malware sandbox container...${RESET}"
+	@$(DOCKER_COMPOSE) up -d sandbox
+	@echo "${APPLE_GREEN}✅ Sandbox container started${RESET}"
+
+sandbox-down:
+	@echo "${BLUE}🛑 Stopping sandbox container...${RESET}"
+	@$(DOCKER_COMPOSE) down sandbox
+	@echo "${YELLOW}✨ Sandbox stopped${RESET}"
+
+sandbox-logs:
+	@$(DOCKER_COMPOSE) logs -f sandbox
+
+sandbox-rebuild:
+	@echo "${BLUE}🔨 Rebuilding sandbox image...${RESET}"
+	@$(DOCKER_COMPOSE) build --no-cache sandbox
+	@echo "${APPLE_GREEN}✅ Sandbox rebuilt${RESET}"
 
 ################################################################################
 # Running Scripts
 ################################################################################
 
-run: check-venv
-	@echo "${YELLOW}▶️  Starting Automated File Watcher on $(DIR)...${RESET}"
-	@$(PYTHON) main.py $(DIR)
+run: check-venv check-config #sandbox-up
+	@echo "${YELLOW}▶️  Starting Automated DFIR Workflow...${RESET}"
+	@echo "${YELLOW}📁 Monitoring: $(MONITORED_DIR)${RESET}"
+	@echo "${YELLOW}📤 Shared:    $(SHARED_DIR)${RESET}"
+	@make monitor
+#	@make report
+
+monitor: check-venv check-config
+	@echo "${YELLOW}👀 Starting file monitoring only...${RESET}"
+	@$(PYTHON) -m monitoring.file_watcher
+
+static-analyze: check-venv check-config sandbox-up
+	@echo "${YELLOW}🔍 Running static analysis...${RESET}"
+	@$(PYTHON) -m analyzers.static_analyzer
+
+dynamic-analyze: check-venv check-config sandbox-up
+	@echo "${YELLOW}🔍 Running dynamic analysis...${RESET}"
+	@$(PYTHON) -m analyzers.dynamic_analyzer
+
+analyze: static-analyze dynamic-analyze
+
+report: check-venv check-config
+	@echo "${YELLOW}📊 Generating reports...${RESET}"
+	@$(PYTHON) -m reporting.report_generator
 
 ################################################################################
-# Utility
+# Utility Targets
 ################################################################################
-
-check-venv:
-	@test -d $(VENV) || (echo "${YELLOW}⚠️  Virtual environment not found. Run 'make venv' first.${RESET}"; exit 1)
 
 clean:
-	@echo "${BLUE}🧹 Cleaning up project files...${RESET}"
-	@find . -type d -name "__pycache__" -exec rm -rf {} +
-	@find . -type f -name "*.pyc" -delete
-	@find . -type f -name "*.pyo" -delete
-	@find . -type f -name "*.json" -delete
-	@find . -type f -name "*.log" -delete
-	@rm -rf $(VENV)
-	@echo "${YELLOW}✨ Everything is clean ✅${RESET}"
+	@echo "${BLUE}🧹 Cleaning project files (keeping venv)...${RESET}"
+	@find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	@find . -type f -name "*.pyo" -delete 2>/dev/null || true
+	@find . -type f -name "*.log" -delete 2>/dev/null || true
+	@rm -rf "$(SHARED_DIR)/queue/*" "$(SHARED_DIR)/static-output/*" "$(SHARED_DIR)/dynamic-output/*" "$(SHARED_DIR)/reports/*" 2>/dev/null || true
+	@if [ -f "$(QUEUE_FILE)" ]; then \
+		echo "[]" > "$(QUEUE_FILE)"; \
+	fi
+	@echo "${YELLOW}✨ Project cleaned${RESET}"
 
-.PHONY: all venv run clean check-venv
+clean-all: clean
+	@echo "${BLUE}🧹 Complete cleanup...${RESET}"
+# 	@make sandbox-down
+	@rm -rf $(VENV)
+	@rm -rf $(SHARED_DIR) 2>/dev/null || true
+	@rm -rf config 2>/dev/null || true
+	@echo "${YELLOW}✨ Everything cleaned${RESET}"
+
+.PHONY: all help \
+	venv check-venv \
+	setup config check-config setup-shared \
+	sandbox-up sandbox-down sandbox-logs sandbox-rebuild \
+	run monitor static-analyze dynamic-analyze analyze report \
+	clean clean-all
