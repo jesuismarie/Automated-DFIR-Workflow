@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  sandbox:
+    image: malware-analyzer-sandbox:latest
+    volumes:
+      - /malware-analysis/queue:/analysis/input
+      - /malware-analysis/static-output:/analysis/static-output
+      - /malware-analysis/dynamic-output:/analysis/dynamic-output
+      - /malware-analysis/reports:/analysis/reports
+    user: "1000:1000"
+    network_mode: none
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges
