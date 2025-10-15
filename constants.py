@@ -1,3 +1,24 @@
+TEMP_EXTENSIONS = [
+	'.com.google.Chrome.*',
+	'.crdownload',
+	'.unconfirmed'
+	'.part',
+	'.download',
+	'.inprogress',
+	'._mp', 
+	'.partial',
+	'.dms', 
+	'.bak',
+	'.opdownload',
+	'.!ut', 
+	'.bc!', 
+	'.xltd',
+	'.filepart',
+	'.tmp', 
+	'.unfinished', 
+	'.aria2'
+]
+
 ARCHIVE_EXTENSIONS = [
 	'.zip',
 	'.rar',
@@ -8,21 +29,12 @@ ARCHIVE_EXTENSIONS = [
 	'.tgz'
 ]
 
-TEMP_EXTENSIONS = [
-	'.crdownload',
-	'.part',
-	'.download',
-	'.inprogress',
-	'._mp', '.partial',
-	'.dms', '.bak',
-	'.opdownload',
-	'.!ut', '.bc!', '.xltd',
-	'.filepart',
-	'.tmp', '.unfinished', '.aria2'
+# Additional useful constants
+EXECUTABLE_EXTENSIONS = [
+	'.exe', '.dll', '.scr', '.bat', '.cmd', '.com', '.pif',
+	'.msi', '.vbs', '.js', '.jse', '.wsf', '.wsh'
 ]
 
-# Directory where archives will be safely extracted for analysis
-UNPACK_ROOT_DIR = 'unpacked_analysis_queue'
-
-# Maximum number of files to extract from a single archive (to prevent zip bombs)
-MAX_FILES_TO_EXTRACT = 100
+DOCUMENT_EXTENSIONS = [
+	'.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.pdf', '.rtf'
+]
