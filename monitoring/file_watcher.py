@@ -3,7 +3,6 @@ import sys
 import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from monitoring.unpacking_worker import unpack_archive
 from monitoring.utils import wait_for_download_completion
 from constants import TEMP_EXTENSIONS, ARCHIVE_EXTENSIONS
 
@@ -27,27 +26,16 @@ class NewFileHandler(FileSystemEventHandler):
 		"""
 		print(f"  [SCAN] Starting recursive scan of directory contents: {directory_path}")
 
-		for root, files in os.walk(directory_path):
+		for root, dir, files in os.walk(directory_path):
 			if files:
 				print(f"  -> Found {len(files)} files in {os.path.basename(root)}")
 			for file_name in files:
 				file_path = os.path.join(root, file_name)
 				if os.path.splitext(file_path)[1].lower() not in TEMP_EXTENSIONS:
-					if os.path.splitext(file_path)[1].lower() in ARCHIVE_EXTENSIONS:
-						self._handle_archive_and_recurse(file_path)
+					if os.path.isdir(file_path):
+						self._scan_directory_contents(file_path)
 					else:
 						self._queue_file_for_analysis(file_path)
-
-	def _handle_archive_and_recurse(self, path):
-		"""
-		Unpacks an archive and queues the contents.
-		"""
-		print(f"\n[*] Archive file found: {path}. Initiating unpacking sequence.")
-		extracted_dir = unpack_archive(path)
-		
-		if extracted_dir:
-			print(f"  [+] Starting recursive scan of extracted contents.")
-			self._scan_directory_contents(extracted_dir)
 
 	def _process_new_file(self, path):
 		"""
@@ -60,11 +48,7 @@ class NewFileHandler(FileSystemEventHandler):
 			print(f"Ignoring temporary download file: {os.path.basename(path)}")
 			if wait_for_download_completion(path):
 				print(f"[*] File ready for analysis: {path}")
-
-		if ext in ARCHIVE_EXTENSIONS:
-			self._handle_archive_and_recurse(path)
-		else:
-			self._queue_file_for_analysis(path)
+		self._queue_file_for_analysis(path)
 
 	def on_created(self, event):
 		"""
