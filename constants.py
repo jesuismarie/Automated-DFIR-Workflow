@@ -1,22 +1,33 @@
 TEMP_EXTENSIONS = [
 	'.com.google.Chrome.*',
 	'.crdownload',
-	'.unconfirmed'
+	'.unconfirmed',
 	'.part',
 	'.download',
 	'.inprogress',
-	'._mp', 
+	'._mp',
 	'.partial',
-	'.dms', 
-	'.bak',
 	'.opdownload',
-	'.!ut', 
-	'.bc!', 
+	'.!ut',
+	'.bc!',
 	'.xltd',
 	'.filepart',
-	'.tmp', 
-	'.unfinished', 
+	'.tmp',
+	'.unfinished',
 	'.aria2'
+]
+
+IGN_EXTENSIONS = [
+	'.swp',
+	'.swo',
+	'.swx',
+	'.bak',
+	'.old',
+	'.orig',
+	'.rej',
+	'.lock',
+	'*~',
+	'.~',
 ]
 
 ARCHIVE_EXTENSIONS = [
