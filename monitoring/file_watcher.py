@@ -1,10 +1,15 @@
 import os
 import sys
 import time
+import json
+import fnmatch
+from typing import Dict, Any
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from monitoring.utils import wait_for_download_completion
-from constants import TEMP_EXTENSIONS, ARCHIVE_EXTENSIONS
+from monitoring.utils import setup_logging, wait_for_download_completion
+from constants import TEMP_EXTENSIONS, IGN_EXTENSIONS
+
+logger = setup_logging("monitoring")
 
 class NewFileHandler(FileSystemEventHandler):
 	"""
@@ -18,24 +23,22 @@ class NewFileHandler(FileSystemEventHandler):
 		"""
 		Placeholder for adding a file to the secure analysis queue.
 		"""
-		print(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(filepath))}")
+		logger.info(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(filepath))}")
 
 	def _scan_directory_contents(self, directory_path):
 		"""
 		Recursively scans a directory (new or moved) and queues all found files.
 		"""
-		print(f"  [SCAN] Starting recursive scan of directory contents: {directory_path}")
+		logger.info(f"  [SCAN] Starting recursive scan of directory contents: {directory_path}")
 
-		for root, dir, files in os.walk(directory_path):
+		for root, _, files in os.walk(directory_path):
 			if files:
-				print(f"  -> Found {len(files)} files in {os.path.basename(root)}")
+				logger.info(f"  -> Found {len(files)} files in {os.path.basename(root)}")
 			for file_name in files:
 				file_path = os.path.join(root, file_name)
-				if os.path.splitext(file_path)[1].lower() not in TEMP_EXTENSIONS:
-					if os.path.isdir(file_path):
-						self._scan_directory_contents(file_path)
-					else:
-						self._queue_file_for_analysis(file_path)
+				if self._is_temp_file(file_path):
+					continue
+				self._queue_file_for_analysis(file_path)
 
 	def _process_new_file(self, path):
 		"""
@@ -44,11 +47,46 @@ class NewFileHandler(FileSystemEventHandler):
 		_, ext = os.path.splitext(path)
 		ext = ext.lower()
 
-		if ext in TEMP_EXTENSIONS:
-			print(f"Ignoring temporary download file: {os.path.basename(path)}")
+		if self._is_temp_file(path):
+			logger.debug(f"Skipping temporary download file (waiting): {os.path.basename(path)}")
 			if wait_for_download_completion(path):
-				print(f"[*] File ready for analysis: {path}")
-		self._queue_file_for_analysis(path)
+				logger.info(f"[*] File ready for analysis after wait: {path}")
+				self._queue_file_for_analysis(path)
+		elif self._is_ign_file(path):
+			logger.debug(f"Ignoring file: {os.path.basename(path)}")
+		else:
+			self._queue_file_for_analysis(path)
+
+	def _is_temp_file(self, path: str) -> bool:
+		"""Return True if the filename matches any pattern in TEMP_EXTENSIONS.
+		Uses fnmatch to allow wildcard patterns like '.com.google.Chrome.*'.
+		"""
+		fname = os.path.basename(path)
+		for pat in TEMP_EXTENSIONS:
+			pattern = pat if pat.startswith('*') else f"*{pat}"
+			try:
+				if fnmatch.fnmatch(fname, pattern):
+					return True
+			except Exception:
+				if fname.lower().endswith(pat.lower()):
+					return True
+		return False
+
+	def _is_ign_file(self, path: str) -> bool:
+		"""
+		Return True if the filename matches any pattern in IGN_EXTENSIONS.
+		Uses fnmatch to allow wildcard patterns like '*~'.
+		"""
+		fname = os.path.basename(path)
+		for pat in IGN_EXTENSIONS:
+			pattern = pat if pat.startswith('*') else f"*{pat}"
+			try:
+				if fnmatch.fnmatch(fname, pattern):
+					return True
+			except Exception:
+				if fname.lower().endswith(pat.lower()):
+					return True
+		return False
 
 	def on_created(self, event):
 		"""
@@ -61,7 +99,7 @@ class NewFileHandler(FileSystemEventHandler):
 		self._processed_paths.add(path)
 
 		if event.is_directory:
-			print(f"\n[*] New directory detected: {path}")
+			logger.info(f"\n[*] New directory detected: {path}")
 			self._scan_directory_contents(path)
 		else:
 			self._process_new_file(path)
@@ -77,10 +115,10 @@ class NewFileHandler(FileSystemEventHandler):
 		self._processed_paths.add(dest_path)
 
 		if event.is_directory:
-			print(f"\n[*] Directory moved/renamed detected: {dest_path}")
+			logger.debug(f"\n[*] Directory moved/renamed detected: {dest_path}")
 			self._scan_directory_contents(dest_path)
 		else:
-			print(f"\n[*] File moved/renamed detected (Finalizing download): {dest_path}")
+			logger.debug(f"\n[*] File moved/renamed detected (Finalizing download): {dest_path}")
 			self._process_new_file(dest_path)
 
 	def on_deleted(self, event):
@@ -90,25 +128,25 @@ class NewFileHandler(FileSystemEventHandler):
 		path = event.src_path
 
 		if event.is_directory:
-			print(f"\n[*] Directory DELETED: {path}")
+			logger.debug(f"\n[*] Directory DELETED: {path}")
 		else:
-			print(f"\n[*] File DELETED: {path}")
+			logger.debug(f"\n[*] File DELETED: {path}")
 
-def start_watcher(path_to_watch):
+def start_watcher(config: Dict[str, Any]):
 	"""
 	Sets up and starts the file system watcher process.
 	"""
-	monitored_directory = os.path.abspath(os.path.expanduser(path_to_watch))
+	monitored_directory = os.path.abspath(os.path.expanduser(config.get('watch_directory')))
 
 	if not os.path.isdir(monitored_directory):
-		print(f"Error: Directory '{monitored_directory}' does not exist.")
+		logger.warning(f"Error: Directory '{monitored_directory}' does not exist.")
 		sys.exit(1)
 
 	event_handler = NewFileHandler()
 	observer = Observer()
 	observer.schedule(event_handler, monitored_directory, recursive=True)
 
-	print("[*] Press Ctrl+C to stop the watcher.")
+	logger.info("[*] Press Ctrl+C to stop the watcher.")
 
 	observer.start()
 	try:
@@ -117,4 +155,54 @@ def start_watcher(path_to_watch):
 	except KeyboardInterrupt:
 		observer.stop()
 	observer.join()
-	print("\n[*] File watcher stopped.")
+	logger.debug("\n[*] File watcher stopped.")
+
+def load_config() -> Dict[str, Any]:
+	"""
+	Load configuration from config/config.json and normalize keys.
+	"""
+	config_path = os.path.join("config", "config.json")
+
+	try:
+		with open(config_path, 'r') as f:
+			config = json.load(f)
+		monitoring_config = config.get('monitoring', {})
+	except (json.JSONDecodeError, FileNotFoundError) as e:
+		logger.error(f"❌ Invalid or missing config: {e}")
+		sys.exit(1)
+
+	watch_dir = monitoring_config.get('watch_directory')
+	shared_dir = monitoring_config.get('shared_directory')
+
+	if not watch_dir:
+		logger.error("watch_directory not set in config")
+		sys.exit(1)
+	if not shared_dir:
+		logger.error("shared_directory not set in config")
+		sys.exit(1)
+
+	watch_dir = os.path.expanduser(watch_dir)
+	shared_dir = os.path.expanduser(shared_dir)
+
+	monitoring_config['watch_directory'] = watch_dir
+	monitoring_config['shared_directory'] = shared_dir
+
+	logger.info(f"Config loaded - Watch: {watch_dir}")
+	logger.info(f"Shared: {shared_dir}")
+	return monitoring_config
+
+def main():
+	"""
+	Main entry point.
+	"""
+	try:
+		config = load_config()
+		start_watcher(config)
+	except KeyboardInterrupt:
+		logger.info("Monitoring stopped by user")
+	except Exception as e:
+		logger.error(f"Fatal error: {str(e)}")
+		sys.exit(1)
+
+if __name__ == "__main__":
+	main()
