@@ -4,6 +4,7 @@ import time
 import json
 import fnmatch
 from typing import Dict, Any
+
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from monitoring.utils import setup_logging, wait_for_download_completion
@@ -19,12 +20,6 @@ class NewFileHandler(FileSystemEventHandler):
 		super().__init__()
 		self._processed_paths = set()
 
-	def _queue_file_for_analysis(self, filepath):
-		"""
-		Placeholder for adding a file to the secure analysis queue.
-		"""
-		logger.info(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(filepath))}")
-
 	def _scan_directory_contents(self, directory_path):
 		"""
 		Recursively scans a directory (new or moved) and queues all found files.
@@ -38,7 +33,7 @@ class NewFileHandler(FileSystemEventHandler):
 				file_path = os.path.join(root, file_name)
 				if self._is_temp_file(file_path):
 					continue
-				self._queue_file_for_analysis(file_path)
+				logger.info(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(file_path))}")
 
 	def _process_new_file(self, path):
 		"""
@@ -51,11 +46,11 @@ class NewFileHandler(FileSystemEventHandler):
 			logger.debug(f"Skipping temporary download file (waiting): {os.path.basename(path)}")
 			if wait_for_download_completion(path):
 				logger.info(f"[*] File ready for analysis after wait: {path}")
-				self._queue_file_for_analysis(path)
+				logger.info(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(path))}")
 		elif self._is_ign_file(path):
 			logger.debug(f"Ignoring file: {os.path.basename(path)}")
 		else:
-			self._queue_file_for_analysis(path)
+			logger.info(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(path))}")
 
 	def _is_temp_file(self, path: str) -> bool:
 		"""Return True if the filename matches any pattern in TEMP_EXTENSIONS.
@@ -110,15 +105,11 @@ class NewFileHandler(FileSystemEventHandler):
 		"""
 		dest_path = event.dest_path
 
-		if dest_path in self._processed_paths:
-			return
-		self._processed_paths.add(dest_path)
-
 		if event.is_directory:
-			logger.debug(f"\n[*] Directory moved/renamed detected: {dest_path}")
+			logger.info(f"\n[*] Directory moved/renamed detected: {dest_path}")
 			self._scan_directory_contents(dest_path)
 		else:
-			logger.debug(f"\n[*] File moved/renamed detected (Finalizing download): {dest_path}")
+			logger.info(f"\n[*] File moved/renamed detected (Finalizing download): {dest_path}")
 			self._process_new_file(dest_path)
 
 	def on_deleted(self, event):
@@ -128,9 +119,9 @@ class NewFileHandler(FileSystemEventHandler):
 		path = event.src_path
 
 		if event.is_directory:
-			logger.debug(f"\n[*] Directory DELETED: {path}")
+			logger.info(f"\n[*] Directory DELETED: {path}")
 		else:
-			logger.debug(f"\n[*] File DELETED: {path}")
+			logger.info(f"\n[*] File DELETED: {path}")
 
 def start_watcher(config: Dict[str, Any]):
 	"""
@@ -144,7 +135,7 @@ def start_watcher(config: Dict[str, Any]):
 
 	event_handler = NewFileHandler()
 	observer = Observer()
-	observer.schedule(event_handler, monitored_directory, recursive=True)
+	observer.schedule(event_handler, monitored_directory, recursive=config.get('recursive'))
 
 	logger.info("[*] Press Ctrl+C to stop the watcher.")
 
