@@ -15,19 +15,49 @@ TEMP_EXTENSIONS = [
 	'.tmp',
 	'.unfinished',
 	'.aria2'
+	'.torrent.part',
+	'.stdownload',
+	'.filedownloading',
+	'.temp',
+	'.tmpfile',
+	'.dpart',
+	'.fuse_hidden*',
+	'.goutputstream*',
 ]
 
 IGN_EXTENSIONS = [
 	'.swp',
 	'.swo',
 	'.swx',
+	'*~',
+	'.~',
 	'.bak',
 	'.old',
 	'.orig',
 	'.rej',
+	'.save',
+	'.backup',
+	'.sublime-workspace',
+	'.sublime-project',
+	'.code-workspace',
+	'.workspace',
+	'.userprefs',
+	'.pyc',
+	'.pyo',
+	'.class',
+	'.rbi',
+	'.idx',
 	'.lock',
-	'*~',
-	'.~',
+	'.lockfile',
+	'.pid',
+	'.seed',
+	'.retry',
+	'.trace',
+	'.stackdump',
+	'.dmp',
+	'.DS_Store',
+	'.Thumbs.db',
+	'.nfs*',
 ]
 
 ARCHIVE_EXTENSIONS = [
@@ -40,12 +70,29 @@ ARCHIVE_EXTENSIONS = [
 	'.tgz'
 ]
 
-# Additional useful constants
 EXECUTABLE_EXTENSIONS = [
-	'.exe', '.dll', '.scr', '.bat', '.cmd', '.com', '.pif',
-	'.msi', '.vbs', '.js', '.jse', '.wsf', '.wsh'
+	'.exe',
+	'.dll',
+	'.scr',
+	'.bat',
+	'.cmd',
+	'.com',
+	'.pif',
+	'.msi',
+	'.vbs',
+	'.js',
+	'.jse',
+	'.wsf',
+	'.wsh',
 ]
 
 DOCUMENT_EXTENSIONS = [
-	'.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.pdf', '.rtf'
+	'.doc',
+	'.docx',
+	'.xls',
+	'.xlsx',
+	'.ppt',
+	'.pptx',
+	'.pdf',
+	'.rtf',
 ]
