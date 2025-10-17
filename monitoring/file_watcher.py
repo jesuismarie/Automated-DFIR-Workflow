@@ -8,7 +8,7 @@ from typing import Dict, Any
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from monitoring.utils import setup_logging, wait_for_download_completion
-from constants import TEMP_EXTENSIONS, IGN_EXTENSIONS
+from constants import TEMP_EXTENSIONS, IGN_EXTENSIONS, IGN_DIRS
 
 logger = setup_logging("monitoring")
 
@@ -67,6 +67,16 @@ class NewFileHandler(FileSystemEventHandler):
 					return True
 		return False
 
+	def _is_ign_dir(self, path):
+		"""
+		Checks if the given path contains any directory from the ignore list.
+		This allows checking any sub-path of the event source.
+		"""
+		for ign in IGN_DIRS:
+			if ign in path:
+				return True
+		return False
+
 	def _is_ign_file(self, path: str) -> bool:
 		"""
 		Return True if the filename matches any pattern in IGN_EXTENSIONS.
@@ -93,24 +103,26 @@ class NewFileHandler(FileSystemEventHandler):
 			return
 		self._processed_paths.add(path)
 
-		if event.is_directory:
-			logger.info(f"\n[*] New directory detected: {path}")
-			self._scan_directory_contents(path)
-		else:
-			self._process_new_file(path)
+		if not self._is_ign_dir(path):
+			if event.is_directory:
+				logger.info(f"\n[*] New directory detected: {path}")
+				self._scan_directory_contents(path)
+			else:
+				self._process_new_file(path)
 
 	def on_moved(self, event):
 		"""
 		Handles file or directory renames/moves (critical for finalized downloads).
 		"""
-		dest_path = event.dest_path
+		path = event.dest_path
 
-		if event.is_directory:
-			logger.info(f"\n[*] Directory moved/renamed detected: {dest_path}")
-			self._scan_directory_contents(dest_path)
-		else:
-			logger.info(f"\n[*] File moved/renamed detected (Finalizing download): {dest_path}")
-			self._process_new_file(dest_path)
+		if not self._is_ign_dir(path):
+			if event.is_directory:
+				logger.info(f"\n[*] Directory moved/renamed detected: {path}")
+				self._scan_directory_contents(path)
+			else:
+				logger.info(f"\n[*] File moved/renamed detected (Finalizing download): {path}")
+				self._process_new_file(path)
 
 	def on_deleted(self, event):
 		"""
@@ -118,10 +130,11 @@ class NewFileHandler(FileSystemEventHandler):
 		"""
 		path = event.src_path
 
-		if event.is_directory:
-			logger.info(f"\n[*] Directory DELETED: {path}")
-		else:
-			logger.info(f"\n[*] File DELETED: {path}")
+		if not self._is_ign_dir(path):
+			if event.is_directory:
+				logger.info(f"\n[*] Directory DELETED: {path}")
+			else:
+				logger.info(f"\n[*] File DELETED: {path}")
 
 def start_watcher(config: Dict[str, Any]):
 	"""
