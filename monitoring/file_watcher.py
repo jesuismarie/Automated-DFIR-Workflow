@@ -20,6 +20,12 @@ class NewFileHandler(FileSystemEventHandler):
 		super().__init__()
 		self._processed_paths = set()
 
+	def __init__(self, config: Dict[str, Any]):
+		super().__init__()
+		self.config = config or {}
+		self.allowed_types = self.config.get('file_types', ['*'])
+		self._processed_paths = set()
+
 	def _scan_directory_contents(self, directory_path):
 		"""
 		Recursively scans a directory (new or moved) and queues all found files.
@@ -52,8 +58,25 @@ class NewFileHandler(FileSystemEventHandler):
 		else:
 			logger.info(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(path))}")
 
+	def _is_allow_file_type(self, path:str) -> bool:
+		"""
+		Return True if the file extension matches any in the allowed_types list.
+		"""
+		_, ext = os.path.splitext(path)
+		ext = ext.lower()
+		for allowed in self.allowed_types:
+			pattern = allowed if allowed.startswith('*') else f"*{allowed}"
+			try:
+				if fnmatch.fnmatch(ext, pattern):
+					return True
+			except Exception:
+				if ext.lower().endswith(allowed.lower()):
+					return True
+		return False
+
 	def _is_temp_file(self, path: str) -> bool:
-		"""Return True if the filename matches any pattern in TEMP_EXTENSIONS.
+		"""
+		Return True if the filename matches any pattern in TEMP_EXTENSIONS.
 		Uses fnmatch to allow wildcard patterns like '.com.google.Chrome.*'.
 		"""
 		fname = os.path.basename(path)
@@ -109,7 +132,7 @@ class NewFileHandler(FileSystemEventHandler):
 			return
 		self._processed_paths.add(path)
 
-		if not self._is_ign_dir(path):
+		if not self._is_ign_dir(path) and self._is_allow_file_type(path):
 			if event.is_directory:
 				logger.info(f"\n[*] New directory detected: {path}")
 				self._scan_directory_contents(path)
@@ -155,7 +178,7 @@ def start_watcher(config: Dict[str, Any]):
 		logger.warning(f"Error: Directory '{monitored_directory}' does not exist.")
 		sys.exit(1)
 
-	event_handler = NewFileHandler()
+	event_handler = NewFileHandler(config)
 	observer = Observer()
 	observer.schedule(event_handler, monitored_directory, recursive=config.get('recursive'))
 
