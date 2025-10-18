@@ -72,6 +72,12 @@ class NewFileHandler(FileSystemEventHandler):
 		Checks if the given path contains any directory from the ignore list.
 		This allows checking any sub-path of the event source.
 		"""
+		path = os.path.expanduser(path)
+		trash_dir = os.path.expanduser("~/.local/share/Trash/files")
+
+		if path.startswith(trash_dir):
+			return False
+
 		for ign in IGN_DIRS:
 			if ign in path:
 				return True
@@ -129,6 +135,9 @@ class NewFileHandler(FileSystemEventHandler):
 		Handles the removal of a file or directory.
 		"""
 		path = event.src_path
+
+		if path not in self._processed_paths:
+			return
 
 		if not self._is_ign_dir(path):
 			if event.is_directory:
