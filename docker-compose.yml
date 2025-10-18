@@ -1,14 +1,44 @@
-version: '3.8'
 services:
   sandbox:
+    container_name: malware-analysis-sandbox
     image: malware-sandbox:latest
+    build:
+      context: .
+      dockerfile: sandbox/Dockerfile
     volumes:
-      - $(HOME)/malware-analysis/queue:/analysis/input
-      - $(HOME)/malware-analysis/static-output:/analysis/static-output
-      - $(HOME)/malware-analysis/dynamic-output:/analysis/dynamic-output
+      - ${HOME}/malware-analysis/logs:/analysis/logs
+      - ${HOME}/malware-analysis/queue:/analysis/input
+      - ${HOME}/malware-analysis/static-output:/analysis/static-output
+      - ${HOME}/malware-analysis/dynamic-output:/analysis/dynamic-output
     user: "1000:1000"
     network_mode: none
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges
+
+volumes:
+  analysis-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${HOME}/malware-analysis/logs
+  analysis-queue:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${HOME}/malware-analysis/queue
+  static-output:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${HOME}/malware-analysis/static-output
+  dynamic-output:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${HOME}/malware-analysis/dynamic-output
