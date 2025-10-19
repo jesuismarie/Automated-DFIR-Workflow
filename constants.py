@@ -14,7 +14,7 @@ TEMP_EXTENSIONS = [
 	'.filepart',
 	'.tmp',
 	'.unfinished',
-	'.aria2'
+	'.aria2',
 	'.torrent.part',
 	'.stdownload',
 	'.filedownloading',
@@ -23,12 +23,17 @@ TEMP_EXTENSIONS = [
 	'.dpart',
 	'.fuse_hidden*',
 	'.goutputstream*',
+	'.vscdb-journal',
+	'.vsctmp',
+	'last-crawl.txt*'
 ]
 
 IGN_EXTENSIONS = [
+	'.vim*',
 	'.swp',
 	'.swo',
 	'.swx',
+	'.swpx',
 	'*~',
 	'.~',
 	'.bak',
@@ -58,6 +63,14 @@ IGN_EXTENSIONS = [
 	'.DS_Store',
 	'.Thumbs.db',
 	'.nfs*',
+	'storage.json',
+	'TransportSecurity',
+	'LOG*',
+	'Preferences',
+	'*.blob',
+	'log-tracked',
+	'pending-messages*',
+	'*.json'
 ]
 
 IGN_DIRS = [
