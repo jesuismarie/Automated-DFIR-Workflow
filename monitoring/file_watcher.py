@@ -16,14 +16,12 @@ class NewFileHandler(FileSystemEventHandler):
 	"""
 	Custom handler to process new file system events from the watcher.
 	"""
-	def __init__(self):
-		super().__init__()
-		self._processed_paths = set()
 
 	def __init__(self, config: Dict[str, Any]):
 		super().__init__()
 		self.config = config or {}
-		self.allowed_types = self.config.get('file_types', ['*'])
+		self.shared_dir = self.config.get('shared_directory')
+		self.allowed_types = self.config.get('file_types')
 		self._processed_paths = set()
 
 	def _scan_directory_contents(self, directory_path):
@@ -37,8 +35,12 @@ class NewFileHandler(FileSystemEventHandler):
 				logger.info(f"  -> Found {len(files)} files in {os.path.basename(root)}")
 			for file_name in files:
 				file_path = os.path.join(root, file_name)
-				if self._is_temp_file(file_path):
+				if self._is_temp_file(file_path) or self._is_ign_file(file_path):
 					continue
+				if not self._is_allow_file_type(file_path):
+					continue
+				if file_path not in self._processed_paths:
+					self._processed_paths.add(file_path)
 				logger.info(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(file_path))}")
 
 	def _process_new_file(self, path):
@@ -53,12 +55,10 @@ class NewFileHandler(FileSystemEventHandler):
 			if wait_for_download_completion(path):
 				logger.info(f"[*] File ready for analysis after wait: {path}")
 				logger.info(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(path))}")
-		elif self._is_ign_file(path):
-			logger.debug(f"Ignoring file: {os.path.basename(path)}")
 		else:
 			logger.info(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(path))}")
 
-	def _is_allow_file_type(self, path:str) -> bool:
+	def _is_allow_file_type(self, path: str) -> bool:
 		"""
 		Return True if the file extension matches any in the allowed_types list.
 		"""
@@ -128,30 +128,50 @@ class NewFileHandler(FileSystemEventHandler):
 		"""
 		path = event.src_path
 
+		if self._is_ign_dir(path):
+			return
+
+		print(self._processed_paths)
 		if path in self._processed_paths:
 			return
-		self._processed_paths.add(path)
-
-		if not self._is_ign_dir(path) and self._is_allow_file_type(path):
-			if event.is_directory:
-				logger.info(f"\n[*] New directory detected: {path}")
-				self._scan_directory_contents(path)
-			else:
+		if event.is_directory:
+			logger.info(f"\n[*] New directory detected: {path}")
+			self._scan_directory_contents(path)
+		else:
+			if self._is_ign_file(path):
+				return
+			if self._is_allow_file_type(path):
 				self._process_new_file(path)
+				if not self._is_temp_file(path):
+					self._processed_paths.add(path)
 
 	def on_moved(self, event):
 		"""
 		Handles file or directory renames/moves (critical for finalized downloads).
 		"""
-		path = event.dest_path
+		old_path = event.src_path
+		new_path = event.dest_path
 
-		if not self._is_ign_dir(path):
-			if event.is_directory:
-				logger.info(f"\n[*] Directory moved/renamed detected: {path}")
-				self._scan_directory_contents(path)
-			else:
-				logger.info(f"\n[*] File moved/renamed detected (Finalizing download): {path}")
-				self._process_new_file(path)
+		if old_path in self._processed_paths:
+			self._processed_paths.remove(old_path)
+
+		if self._is_ign_dir(new_path):
+			return
+
+		if new_path in self._processed_paths:
+			return
+
+		if event.is_directory:
+			logger.info(f"\n[*] Directory moved/renamed detected: {new_path}")
+			self._scan_directory_contents(new_path)
+		else:
+			if self._is_ign_file(new_path):
+				return
+			if self._is_allow_file_type(new_path):
+				logger.info(f"\n[*] File moved/renamed detected (Finalizing download): {new_path}")
+				self._process_new_file(new_path)
+				if not self._is_temp_file(new_path):
+					self._processed_paths.add(new_path)
 
 	def on_deleted(self, event):
 		"""
@@ -161,6 +181,8 @@ class NewFileHandler(FileSystemEventHandler):
 
 		if path not in self._processed_paths:
 			return
+		else:
+			self._processed_paths.remove(path)
 
 		if not self._is_ign_dir(path):
 			if event.is_directory:
