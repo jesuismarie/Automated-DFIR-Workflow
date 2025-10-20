@@ -68,18 +68,7 @@ config: check-venv
 				'watch_directory': os.path.expanduser('~/Downloads'), \
 				'recursive': True, \
 				'file_types': ['*'], \
-				'shared_directory': os.path.expanduser('~/malware-analysis') \
-			}, \
-			'static_analysis': { \
-				'output_directory': os.path.expanduser('~/malware-analysis/static-output'), \
-			}, \
-			'dynamic_analysis': { \
-				'output_directory': os.path.expanduser('~/malware-analysis/dynamic-output'), \
-			}, \
-			'reporting': { \
-				'report_directory': os.path.expanduser('~/malware-analysis/reports'), \
-				'report_format': 'markdown', \
-				'retention_days': 30 \
+				'shared_directory': os.path.expanduser('~/malware-analysis'), \
 			} \
 		}; json.dump(config, open('$(CONFIG_FILE)', 'w'), indent=2)"; \
 	fi
@@ -159,7 +148,6 @@ run: check-venv check-config sandbox-up
 	@echo "${YELLOW}📁 Monitoring: $(MONITORED_DIR)${RESET}"
 	@echo "${YELLOW}📤 Shared:    $(SHARED_DIR)${RESET}"
 	@make monitor
-#	@make report
 
 monitor: check-venv check-config
 	@echo "${YELLOW}👀 Starting file monitoring only...${RESET}"
