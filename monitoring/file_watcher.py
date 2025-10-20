@@ -7,6 +7,7 @@ from typing import Dict, Any
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from monitoring.config import load_config
+from monitoring.queue_manager import QueueManager
 from monitoring.utils import setup_logging, wait_for_download_completion
 from constants import TEMP_EXTENSIONS, IGN_EXTENSIONS, IGN_DIRS
 
@@ -16,13 +17,13 @@ class NewFileHandler(FileSystemEventHandler):
 	"""
 	Custom handler to process new file system events from the watcher.
 	"""
-
 	def __init__(self, config: Dict[str, Any]):
 		super().__init__()
 		self.config = config or {}
 		self.shared_dir = self.config.get('shared_directory')
 		self.allowed_types = self.config.get('file_types')
 		self._processed_paths = set()
+		self.queue_manager = QueueManager(self.shared_dir)
 
 	def _scan_directory_contents(self, directory_path):
 		"""
@@ -41,33 +42,29 @@ class NewFileHandler(FileSystemEventHandler):
 					continue
 				if file_path not in self._processed_paths:
 					self._processed_paths.add(file_path)
-				logger.info(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(file_path))}")
+					self.queue_manager.add_file(file_path)
 
 	def _process_new_file(self, path):
 		"""
 		Handles the stability check and processing of a single file.
 		"""
-		_, ext = os.path.splitext(path)
-		ext = ext.lower()
-
 		if self._is_temp_file(path):
 			logger.debug(f"Skipping temporary download file (waiting): {os.path.basename(path)}")
 			if wait_for_download_completion(path):
 				logger.info(f"[*] File ready for analysis after wait: {path}")
-				logger.info(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(path))}")
+				self.queue_manager.add_file(path)
 		else:
-			logger.info(f"  [>] Queuing file for Static/Dynamic analysis: {os.path.normpath(os.path.abspath(path))}")
+			self.queue_manager.add_file(path)
 
 	def _is_allow_file_type(self, path: str) -> bool:
 		"""
 		Return True if the file extension matches any in the allowed_types list.
 		"""
 		_, ext = os.path.splitext(path)
-		ext = ext.lower()
 		for allowed in self.allowed_types:
 			pattern = allowed if allowed.startswith('*') else f"*{allowed}"
 			try:
-				if fnmatch.fnmatch(ext, pattern):
+				if fnmatch.fnmatch(ext.lower(), pattern.lower()):
 					return True
 			except Exception:
 				if ext.lower().endswith(allowed.lower()):
@@ -83,7 +80,7 @@ class NewFileHandler(FileSystemEventHandler):
 		for pat in TEMP_EXTENSIONS:
 			pattern = pat if pat.startswith('*') else f"*{pat}"
 			try:
-				if fnmatch.fnmatch(fname, pattern):
+				if fnmatch.fnmatch(fname.lower(), pattern.lower()):
 					return True
 			except Exception:
 				if fname.lower().endswith(pat.lower()):
@@ -115,7 +112,7 @@ class NewFileHandler(FileSystemEventHandler):
 		for pat in IGN_EXTENSIONS:
 			pattern = pat if pat.startswith('*') else f"*{pat}"
 			try:
-				if fnmatch.fnmatch(fname, pattern):
+				if fnmatch.fnmatch(fname.lower(), pattern.lower()):
 					return True
 			except Exception:
 				if fname.lower().endswith(pat.lower()):
@@ -131,7 +128,6 @@ class NewFileHandler(FileSystemEventHandler):
 		if self._is_ign_dir(path):
 			return
 
-		print(self._processed_paths)
 		if path in self._processed_paths:
 			return
 		if event.is_directory:
@@ -144,6 +140,7 @@ class NewFileHandler(FileSystemEventHandler):
 				self._process_new_file(path)
 				if not self._is_temp_file(path):
 					self._processed_paths.add(path)
+					self.queue_manager.add_file(path)
 
 	def on_moved(self, event):
 		"""
@@ -169,26 +166,25 @@ class NewFileHandler(FileSystemEventHandler):
 				return
 			if self._is_allow_file_type(new_path):
 				logger.info(f"\n[*] File moved/renamed detected (Finalizing download): {new_path}")
-				self._process_new_file(new_path)
+				self.queue_manager.update_file(old_path, new_path)
 				if not self._is_temp_file(new_path):
 					self._processed_paths.add(new_path)
+					self.queue_manager.add_file(new_path)
 
 	def on_deleted(self, event):
 		"""
 		Handles the removal of a file or directory.
 		"""
 		path = event.src_path
-
 		if path not in self._processed_paths:
 			return
-		else:
-			self._processed_paths.remove(path)
-
+		self._processed_paths.remove(path)
 		if not self._is_ign_dir(path):
 			if event.is_directory:
 				logger.info(f"\n[*] Directory DELETED: {path}")
 			else:
 				logger.info(f"\n[*] File DELETED: {path}")
+				self.queue_manager.remove_file(path)
 
 def start_watcher(config: Dict[str, Any]):
 	"""
@@ -213,7 +209,7 @@ def start_watcher(config: Dict[str, Any]):
 	except KeyboardInterrupt:
 		observer.stop()
 	observer.join()
-	logger.debug("\n[*] File watcher stopped.")
+	logger.info("\n[*] File watcher stopped.")
 
 def main():
 	"""
