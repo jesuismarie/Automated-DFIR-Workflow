@@ -1,0 +1,6 @@
+yara-python
+pefile
+python-magic
+filelock
+rarfile
+tarfile
