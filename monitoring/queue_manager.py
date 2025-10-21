@@ -92,7 +92,8 @@ class QueueManager:
 				"sha256": sha256,
 				"timestamp": datetime.utcnow().isoformat() + "Z",
 				"event_type": "created",
-				"file_type": "unknown"
+				"file_type": "unknown",
+				"status": "pending"
 			}
 
 			queue_data.append(queue_entry)
@@ -124,6 +125,7 @@ class QueueManager:
 					entry["shared_path"] = os.path.join(self.files_dir, os.path.basename(new_path))
 					entry["timestamp"] = datetime.utcnow().isoformat() + "Z"
 					entry["event_type"] = "moved"
+					entry["status"] = "pending"
 					updated = True
 					break
 
