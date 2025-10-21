@@ -55,12 +55,14 @@ class NewFileHandler(FileSystemEventHandler):
 				self.queue_manager.add_file(path)
 		else:
 			self.queue_manager.add_file(path)
+			self._processed_paths.add(path)
 
 	def _is_allow_file_type(self, path: str) -> bool:
 		"""
 		Return True if the file extension matches any in the allowed_types list.
 		"""
 		_, ext = os.path.splitext(path)
+
 		for allowed in self.allowed_types:
 			pattern = allowed if allowed.startswith('*') else f"*{allowed}"
 			try:
@@ -77,6 +79,7 @@ class NewFileHandler(FileSystemEventHandler):
 		Uses fnmatch to allow wildcard patterns like '.com.google.Chrome.*'.
 		"""
 		fname = os.path.basename(path)
+
 		for pat in TEMP_EXTENSIONS:
 			pattern = pat if pat.startswith('*') else f"*{pat}"
 			try:
@@ -109,6 +112,7 @@ class NewFileHandler(FileSystemEventHandler):
 		Uses fnmatch to allow wildcard patterns like '*~'.
 		"""
 		fname = os.path.basename(path)
+
 		for pat in IGN_EXTENSIONS:
 			pattern = pat if pat.startswith('*') else f"*{pat}"
 			try:
@@ -130,6 +134,7 @@ class NewFileHandler(FileSystemEventHandler):
 
 		if path in self._processed_paths:
 			return
+
 		if event.is_directory:
 			logger.info(f"\n[*] New directory detected: {path}")
 			self._scan_directory_contents(path)
@@ -138,9 +143,6 @@ class NewFileHandler(FileSystemEventHandler):
 				return
 			if self._is_allow_file_type(path):
 				self._process_new_file(path)
-				if not self._is_temp_file(path):
-					self._processed_paths.add(path)
-					self.queue_manager.add_file(path)
 
 	def on_moved(self, event):
 		"""
@@ -169,16 +171,18 @@ class NewFileHandler(FileSystemEventHandler):
 				self.queue_manager.update_file(old_path, new_path)
 				if not self._is_temp_file(new_path):
 					self._processed_paths.add(new_path)
-					self.queue_manager.add_file(new_path)
 
 	def on_deleted(self, event):
 		"""
 		Handles the removal of a file or directory.
 		"""
 		path = event.src_path
+
 		if path not in self._processed_paths:
 			return
+
 		self._processed_paths.remove(path)
+
 		if not self._is_ign_dir(path):
 			if event.is_directory:
 				logger.info(f"\n[*] Directory DELETED: {path}")

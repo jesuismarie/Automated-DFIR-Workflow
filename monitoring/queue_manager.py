@@ -4,6 +4,8 @@ import hashlib
 import shutil
 from typing import Dict, List
 from datetime import datetime
+from filelock import FileLock
+
 from monitoring.utils import setup_logging
 
 logger = setup_logging("queue_manager")
@@ -19,6 +21,7 @@ class QueueManager:
 		self.shared_dir = os.path.abspath(os.path.expanduser(shared_dir))
 		self.queue_dir = os.path.join(self.shared_dir, "queue")
 		self.queue_file = os.path.join(self.queue_dir, "queue.json")
+		self.lock_file = os.path.join(self.queue_dir, "queue.json.lock")
 		self.files_dir = os.path.join(self.queue_dir, "files")
 		os.makedirs(self.files_dir, exist_ok=True)
 
@@ -38,27 +41,29 @@ class QueueManager:
 
 	def _load_queue(self) -> List[Dict[str, str]]:
 		"""
-		Load the queue.json file.
+		Load the queue.json file with file locking.
 		"""
-		if not os.path.exists(self.queue_file):
-			return []
-		try:
-			with open(self.queue_file, "r") as f:
-				return json.load(f)
-		except json.JSONDecodeError as e:
-			logger.warning(f"Invalid queue.json, resetting: {e}")
-			return []
+		with FileLock(self.lock_file):
+			if not os.path.exists(self.queue_file):
+				return []
+			try:
+				with open(self.queue_file, "r") as f:
+					return json.load(f)
+			except json.JSONDecodeError as e:
+				logger.warning(f"Invalid queue.json, resetting: {e}")
+				return []
 
 	def _save_queue(self, queue_data: List[Dict[str, str]]):
 		"""
-		Save the queue data to queue.json.
+		Save the queue data to queue.json with file locking.
 		"""
-		try:
-			with open(self.queue_file, "w") as f:
-				json.dump(queue_data, f, indent=2)
-		except Exception as e:
-			logger.error(f"Failed to save queue.json: {e}")
-			raise
+		with FileLock(self.lock_file):
+			try:
+				with open(self.queue_file, "w") as f:
+					json.dump(queue_data, f, indent=2)
+			except Exception as e:
+				logger.error(f"Failed to save queue.json: {e}")
+				raise
 
 	def add_file(self, file_path: str) -> bool:
 		"""
