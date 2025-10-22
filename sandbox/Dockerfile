@@ -11,7 +11,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	libffi-dev \
 	libmagic1 \
 	yara \
-	unrar \
 	&& rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g ${GID} ${USER} || true \
@@ -29,7 +28,8 @@ COPY analyzers /analysis/analyzers
 COPY sandbox/entrypoint.sh /analysis/entrypoint.sh
 COPY sandbox/requirements.txt /analysis/requirements.txt
 
-RUN pip install --no-cache-dir -r /analysis/requirements.txt
+RUN pip install --upgrade pip && \
+pip install --no-cache-dir -r /analysis/requirements.txt
 
 RUN chmod +x /analysis/entrypoint.sh
 
