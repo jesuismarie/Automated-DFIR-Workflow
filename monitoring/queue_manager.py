@@ -6,7 +6,7 @@ from typing import Dict, List
 from datetime import datetime
 from filelock import FileLock
 
-from monitoring.utils import setup_logging
+from logger import setup_logging
 
 logger = setup_logging("queue_manager")
 
