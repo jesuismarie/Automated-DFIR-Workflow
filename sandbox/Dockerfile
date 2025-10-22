@@ -11,6 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	libffi-dev \
 	libmagic1 \
 	yara \
+	inotify-tools \
+	strace \
+	tcpdump \
+	wine64 \
+	unzip \
+	p7zip-full \
+	file \
 	&& rm -rf /var/lib/apt/lists/*
 
 RUN groupadd -g ${GID} ${USER} || true \
@@ -25,6 +32,7 @@ RUN git clone https://github.com/Yara-Rules/rules /analysis/rules/
 RUN find /analysis/rules -name "*.yar" -exec yara -c {} \; || true
 
 COPY analyzers /analysis/analyzers
+COPY logger.py /analysis/analyzers/logger.py
 COPY sandbox/entrypoint.sh /analysis/entrypoint.sh
 COPY sandbox/requirements.txt /analysis/requirements.txt
 
