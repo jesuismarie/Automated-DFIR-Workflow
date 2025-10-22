@@ -19,9 +19,10 @@ QUEUE_PATH = "/analysis/input/queue.json"
 LOCK_PATH = "/analysis/input/queue.json.lock"
 RULES_DIR = "/analysis/rules/"
 OUTPUT_DIR = "/analysis/static-output/"
-# analyzing file must be moved to /processing before analysis
+PROCESSING_DIR = "/analysis/processing/"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(PROCESSING_DIR, exist_ok=True)
 
 class StaticAnalyzer:
 	def __init__(self):
@@ -253,7 +254,14 @@ class StaticAnalyzer:
 						with open(QUEUE_PATH, "w") as f:
 							json.dump(queue, f, indent=2)
 
-						results = self.analyze_file(entry["shared_path"], entry["sha256"])
+						file_basename = os.path.basename(entry["shared_path"])
+						file_path = os.path.join("/analysis/input/files", file_basename)
+
+						processing_path = os.path.join(PROCESSING_DIR, file_basename)
+						shutil.move(file_path, processing_path)
+						print(f"Moved file to processing: {processing_path}")
+
+						results = self.analyze_file(processing_path, entry["sha256"])
 						output_path = os.path.join(OUTPUT_DIR, f"{entry['sha256']}.json")
 						with open(output_path, "w") as f:
 							json.dump(results, f, indent=2)
