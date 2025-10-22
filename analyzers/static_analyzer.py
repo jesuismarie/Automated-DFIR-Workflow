@@ -1,5 +1,6 @@
 import os
 import re
+import math
 import json
 import time
 import yara
@@ -15,19 +16,23 @@ from typing import Dict, Any
 from filelock import FileLock
 from zipfile import ZipFile
 
+from logger import setup_logging
+
 QUEUE_PATH = "/analysis/input/queue.json"
 LOCK_PATH = "/analysis/input/queue.json.lock"
 RULES_DIR = "/analysis/rules/"
 OUTPUT_DIR = "/analysis/static-output/"
-PROCESSING_DIR = "/analysis/processing/"
+PROCESSING_DIR = "/analysis/processed/"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(PROCESSING_DIR, exist_ok=True)
 
+logger = setup_logging("static_analyzer")
+
 class StaticAnalyzer:
 	def __init__(self):
 		self.rules = self._compile_yara_rules()
-		print("Static analyzer initialized, YARA rules loaded")
+		logger.info("Static analyzer initialized, YARA rules loaded")
 
 	def _compile_yara_rules(self):
 		"""
@@ -41,9 +46,9 @@ class StaticAnalyzer:
 					try:
 						rules[filepath] = yara.compile(filepath=filepath)
 					except yara.SyntaxError as e:
-						print(f"Syntax error in YARA rule {filepath}: {e}")
+						logger.warning(f"Syntax error in YARA rule {filepath}: {e}")
 					except Exception as e:
-						print(f"Failed to compile YARA rule {filepath}: {e}")
+						logger.error(f"Failed to compile YARA rule {filepath}: {e}")
 		return rules
 
 	def _get_file_type(self, file_path: str) -> str:
@@ -53,7 +58,7 @@ class StaticAnalyzer:
 		try:
 			return magic.from_file(file_path, mime=True)
 		except Exception as e:
-			print(f"Failed to get file type for {file_path}: {e}")
+			logger.error(f"Failed to get file type for {file_path}: {e}")
 			return "unknown"
 
 	def _calculate_sha256(self, file_path: str) -> str:
@@ -67,7 +72,7 @@ class StaticAnalyzer:
 					sha256_hash.update(chunk)
 			return sha256_hash.hexdigest()
 		except Exception as e:
-			print(f"Failed to calculate SHA256 for {file_path}: {e}")
+			logger.error(f"Failed to calculate SHA256 for {file_path}: {e}")
 			raise
 
 	def _is_valid_ip(self, ip_str: str) -> bool:
@@ -76,16 +81,29 @@ class StaticAnalyzer:
 		"""
 		try:
 			ip = ipaddress.ip_address(ip_str)
-			return isinstance(ip, ipaddress.IPv4Address)
+			return isinstance(ip, ipaddress.IPv4Address) and not ip.is_private and not ip.is_loopback
 		except ValueError:
 			return False
+
+	def _calculate_entropy(self, data: bytes) -> float:
+		"""
+		Calculate Shannon entropy of a byte string to detect random data.
+		"""
+		if not data:
+			return 0.0
+		entropy = 0
+		for x in range(256):
+			p_x = float(data.count(x)) / len(data)
+			if p_x > 0:
+				entropy -= p_x * math.log2(p_x)
+		return entropy
 
 	def analyze_file(self, file_path: str, sha256: str, depth: int = 0, max_depth: int = 3) -> Dict[str, Any]:
 		"""
 		Analyze a file, handling archives recursively and applying YARA and PE analysis.
 		"""
 		if depth > max_depth:
-			print(f"Max recursion depth reached for {file_path}")
+			logger.warning(f"Max recursion depth reached for {file_path}")
 			return {"status": "failed", "error": "Max recursion depth exceeded"}
 
 		try:
@@ -115,6 +133,19 @@ class StaticAnalyzer:
 			}
 
 			start_time = time.time()
+
+			try:
+				with open(file_path, "rb") as f:
+					content = f.read()
+				entropy = self._calculate_entropy(content)
+				results["file_info"]["entropy"] = entropy
+				is_random_data = entropy > 7.0
+				if is_random_data:
+					logger.info(f"High entropy detected for {file_path}: {entropy:.2f}")
+			except Exception as e:
+				logger.warning(f"Failed to read file for entropy: {file_path}: {e}")
+				content = b""
+				is_random_data = False
 
 			temp_dir = None
 			file_type = results["file_info"]["file_type"]
@@ -149,7 +180,7 @@ class StaticAnalyzer:
 								results["results"]["extracted_iocs"][key] = []
 							results["results"]["extracted_iocs"][key].extend(sub_results["results"]["extracted_iocs"][key])
 				except Exception as e:
-					print(f"Failed to process archive {file_path}: {e}")
+					logger.error(f"Failed to process archive {file_path}: {e}")
 					results["status"] = "failed"
 					results["error"] = f"Archive processing failed: {str(e)}"
 				finally:
@@ -162,72 +193,82 @@ class StaticAnalyzer:
 				for rule_filepath, rule_set in self.rules.items():
 					try:
 						matches = rule_set.match(file_path)
-						yara_matches.extend([
-							{
+						for m in matches:
+							severity = "HIGH" if "malware" in m.rule.lower() else "MEDIUM" if "packer" in m.rule.lower() else "LOW"
+							score = 30 if severity == "HIGH" else 15 if severity == "MEDIUM" else 5
+							yara_matches.append({
 								"rule_name": m.rule,
-								"severity": "HIGH" if "malware" in m.rule.lower() else "MEDIUM",
+								"severity": severity,
 								"matched_strings": [str(s) for s in m.strings],
 								"source_rule": rule_filepath
-							} for m in matches
-						])
+							})
+							if not (is_random_data and severity == "LOW"):
+								results["risk_assessment"]["risk_score"] += score
 					except Exception as e:
-						print(f"YARA scan failed for {file_path} with rule {rule_filepath}: {e}")
+						logger.warning(f"YARA scan failed for {file_path} with rule {rule_filepath}: {e}")
 				results["results"]["yara_matches"] = yara_matches
-				if yara_matches:
-					results["risk_assessment"]["risk_score"] += 50
 
-				# PEfile analysis
-				try:
-					pe = pefile.PE(file_path)
-					pe_analysis = {
-						"suspicious_imports": [
-							imp.name.decode('utf-8', errors='ignore') if imp.name else ""
-							for dll in pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']].imports
-							for imp in dll.imports
-							if imp.name and (b'VirtualAlloc' in imp.name or b'CreateRemoteThread' in imp.name)
-						],
-						"high_entropy_sections": [
-							sec.Name.decode('utf-8', errors='ignore').strip() for sec in pe.sections if sec.get_entropy() > 6.5
-						],
-						"overlay_detected": len(pe.get_overlay()) > 0,
-						"is_packed": any(pe.sections[i].SizeOfRawData == 0 for i in range(len(pe.sections)))
-					}
-					results["results"]["pe_analysis"] = pe_analysis
-					if pe_analysis["suspicious_imports"] or pe_analysis["high_entropy_sections"] or pe_analysis["is_packed"]:
-						results["risk_assessment"]["risk_score"] += 35
-				except pefile.PEFormatError:
-					print(f"Not a PE file: {file_path}")
+				# PEfile analysis (skip for random data unless specific YARA matches)
+				if not is_random_data or any(m["severity"] in ["HIGH", "MEDIUM"] for m in yara_matches):
+					try:
+						pe = pefile.PE(file_path)
+						pe_analysis = {
+							"suspicious_imports": [
+								imp.name.decode('utf-8', errors='ignore') if imp.name else ""
+								for dll in pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']].imports
+								for imp in dll.imports
+								if imp.name and (b'VirtualAlloc' in imp.name or b'CreateRemoteThread' in imp.name)
+							],
+							"high_entropy_sections": [
+								sec.Name.decode('utf-8', errors='ignore').strip() for sec in pe.sections if sec.get_entropy() > 6.5
+							],
+							"overlay_detected": len(pe.get_overlay()) > 0,
+							"is_packed": any(pe.sections[i].SizeOfRawData == 0 for i in range(len(pe.sections)))
+						}
+						results["results"]["pe_analysis"] = pe_analysis
+						if pe_analysis["suspicious_imports"] or pe_analysis["high_entropy_sections"] or pe_analysis["is_packed"]:
+							results["risk_assessment"]["risk_score"] += 35
+					except pefile.PEFormatError:
+						logger.debug(f"Not a PE file: {file_path}")
 
-				# IOC extraction
-				try:
-					with open(file_path, "rb") as f:
-						content = f.read()
-					iocs = {
-						"urls": [u.decode('utf-8', errors='ignore') for u in re.findall(
-							b"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+", content
-						)],
-						"ips": [i.decode('utf-8') for i in re.findall(
-							b"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", content
-						) if self._is_valid_ip(i.decode('utf-8'))]
-					}
-					results["results"]["extracted_iocs"] = iocs
-					if iocs["urls"] or iocs["ips"]:
-						results["risk_assessment"]["risk_score"] += 15
-				except Exception as e:
-					print(f"IOC extraction failed for {file_path}: {e}")
+				# IOC extraction (skip for random data unless specific YARA matches)
+				if not is_random_data or any(m["severity"] in ["HIGH", "MEDIUM"] for m in yara_matches):
+					try:
+						iocs = {
+							"urls": [u.decode('utf-8', errors='ignore') for u in re.findall(
+								b"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+", content
+							)],
+							"ips": [i.decode('utf-8') for i in re.findall(
+								b"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", content
+							) if self._is_valid_ip(i.decode('utf-8'))]
+						}
+						results["results"]["extracted_iocs"] = iocs
+						if iocs["urls"] or iocs["ips"]:
+							results["risk_assessment"]["risk_score"] += 15
+					except Exception as e:
+						logger.warning(f"IOC extraction failed for {file_path}: {e}")
+
+				if is_random_data and results["risk_assessment"]["risk_score"] <= 15:
+					results["risk_assessment"]["risk_score"] = 0
+					results["risk_assessment"]["threat_classification"] = "RANDOM_DATA"
+					logger.info(f"Classified {file_path} as random data, resetting risk score")
 
 				# Calculate risk level
 				score = results["risk_assessment"]["risk_score"]
 				if score > 70:
 					results["risk_assessment"]["risk_level"] = "HIGH"
 					results["risk_assessment"]["recommendation"] = "QUARANTINE"
-				elif score > 40:
+				elif score > 50:
 					results["risk_assessment"]["risk_level"] = "MEDIUM"
+					results["risk_assessment"]["recommendation"] = "REVIEW"
+				else:
+					results["risk_assessment"]["risk_level"] = "LOW"
+					results["risk_assessment"]["recommendation"] = "MONITOR"
 
 			results["duration_ms"] = int((time.time() - start_time) * 1000)
 			return results
 		except Exception as e:
-			print(f"Analysis failed for {file_path}: {e}")
+			logger.error(f"Analysis failed for {file_path}: {e}")
 			return {
 				"analysis_id": f"static_{sha256[:8]}",
 				"file_info": {"sha256": sha256, "original_path": file_path},
@@ -245,7 +286,7 @@ class StaticAnalyzer:
 					with open(QUEUE_PATH, "r") as f:
 						queue = json.load(f)
 				except json.JSONDecodeError:
-					print("Invalid queue.json, skipping")
+					logger.warning("Invalid queue.json, skipping")
 					queue = []
 
 				for entry in queue:
@@ -258,8 +299,16 @@ class StaticAnalyzer:
 						file_path = os.path.join("/analysis/input/files", file_basename)
 
 						processing_path = os.path.join(PROCESSING_DIR, file_basename)
-						shutil.move(file_path, processing_path)
-						print(f"Moved file to processing: {processing_path}")
+						try:
+							shutil.move(file_path, processing_path)
+							logger.info(f"Moved file to processing: {processing_path}")
+						except Exception as e:
+							logger.error(f"Failed to move file to processing: {file_path}: {e}")
+							entry["status"] = "failed"
+							entry["error"] = str(e)
+							with open(QUEUE_PATH, "w") as f:
+								json.dump(queue, f, indent=2)
+							continue
 
 						results = self.analyze_file(processing_path, entry["sha256"])
 						output_path = os.path.join(OUTPUT_DIR, f"{entry['sha256']}.json")
@@ -271,7 +320,7 @@ class StaticAnalyzer:
 						with open(QUEUE_PATH, "w") as f:
 							json.dump(queue, f, indent=2)
 
-						print(f"Analyzed file: {entry['original_path']} (Output: {output_path})")
+						logger.info(f"Analyzed file: {entry['original_path']} (Output: {output_path})")
 
 			time.sleep(10)
 
