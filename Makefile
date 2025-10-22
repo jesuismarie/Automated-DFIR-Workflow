@@ -171,6 +171,8 @@ report: check-venv check-config
 # Utility Targets
 ################################################################################
 
+re: clean-all all
+
 clean:
 	@echo "${BLUE}🧹 Cleaning project files (keeping venv)...${RESET}"
 	@find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
