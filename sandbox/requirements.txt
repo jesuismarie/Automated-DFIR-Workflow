@@ -1,6 +1,5 @@
+rarfile
+filelock
+python-magic
 yara-python
 pefile
-python-magic
-filelock
-rarfile
-tarfile
