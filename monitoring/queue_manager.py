@@ -1,7 +1,8 @@
 import os
 import json
-import hashlib
+import magic
 import shutil
+import hashlib
 from typing import Dict, List
 from datetime import datetime
 from filelock import FileLock
@@ -65,6 +66,16 @@ class QueueManager:
 				logger.error(f"Failed to save queue.json: {e}")
 				raise
 
+	def _get_file_type(self, file_path: str) -> str:
+		"""
+		Determine the MIME type of a file using python-magic.
+		"""
+		try:
+			return magic.from_file(file_path, mime=True)
+		except Exception as e:
+			logger.error(f"Failed to get file type for {file_path}: {e}")
+			return "unknown"
+
 	def add_file(self, file_path: str) -> bool:
 		"""
 		Add a file to the queue and copy it to shared_dir/queue/files/.
@@ -92,7 +103,7 @@ class QueueManager:
 				"sha256": sha256,
 				"timestamp": datetime.utcnow().isoformat() + "Z",
 				"event_type": "created",
-				"file_type": "unknown",
+				"file_type": self._get_file_type(file_path),
 				"status": "pending"
 			}
 
