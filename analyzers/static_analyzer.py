@@ -1,6 +1,5 @@
 import os
 import re
-import math
 import json
 import time
 import yara
@@ -26,6 +25,8 @@ PROCESSING_DIR = "/analysis/processed/"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(PROCESSING_DIR, exist_ok=True)
+
+logger = setup_logging("static_analyzer")
 
 class StaticAnalyzer:
 	def __init__(self):
@@ -83,19 +84,6 @@ class StaticAnalyzer:
 		except ValueError:
 			return False
 
-	def _calculate_entropy(self, data: bytes) -> float:
-		"""
-		Calculate Shannon entropy of a byte string to detect random data.
-		"""
-		if not data:
-			return 0.0
-		entropy = 0
-		for x in range(256):
-			p_x = float(data.count(x)) / len(data)
-			if p_x > 0:
-				entropy -= p_x * math.log2(p_x)
-		return entropy
-
 	def analyze_file(self, file_path: str, sha256: str, depth: int = 0, max_depth: int = 3) -> Dict[str, Any]:
 		"""
 		Analyze a file, handling archives recursively and applying YARA and PE analysis.
@@ -131,19 +119,6 @@ class StaticAnalyzer:
 			}
 
 			start_time = time.time()
-
-			try:
-				with open(file_path, "rb") as f:
-					content = f.read()
-				entropy = self._calculate_entropy(content)
-				results["file_info"]["entropy"] = entropy
-				is_random_data = entropy > 7.0
-				if is_random_data:
-					logger.info(f"High entropy detected for {file_path}: {entropy:.2f}")
-			except Exception as e:
-				logger.warning(f"Failed to read file for entropy: {file_path}: {e}")
-				content = b""
-				is_random_data = False
 
 			temp_dir = None
 			file_type = results["file_info"]["file_type"]
@@ -191,77 +166,67 @@ class StaticAnalyzer:
 				for rule_filepath, rule_set in self.rules.items():
 					try:
 						matches = rule_set.match(file_path)
-						for m in matches:
-							severity = "HIGH" if "malware" in m.rule.lower() else "MEDIUM" if "packer" in m.rule.lower() else "LOW"
-							score = 30 if severity == "HIGH" else 15 if severity == "MEDIUM" else 5
-							yara_matches.append({
+						yara_matches.extend([
+							{
 								"rule_name": m.rule,
-								"severity": severity,
+								"severity": "HIGH" if "malware" in m.rule.lower() else "MEDIUM",
 								"matched_strings": [str(s) for s in m.strings],
 								"source_rule": rule_filepath
-							})
-							if not (is_random_data and severity == "LOW"):
-								results["risk_assessment"]["risk_score"] += score
+							} for m in matches
+						])
 					except Exception as e:
 						logger.warning(f"YARA scan failed for {file_path} with rule {rule_filepath}: {e}")
 				results["results"]["yara_matches"] = yara_matches
+				if yara_matches:
+					results["risk_assessment"]["risk_score"] += 50
 
-				# PEfile analysis (skip for random data unless specific YARA matches)
-				if not is_random_data or any(m["severity"] in ["HIGH", "MEDIUM"] for m in yara_matches):
-					try:
-						pe = pefile.PE(file_path)
-						pe_analysis = {
-							"suspicious_imports": [
-								imp.name.decode('utf-8', errors='ignore') if imp.name else ""
-								for dll in pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']].imports
-								for imp in dll.imports
-								if imp.name and (b'VirtualAlloc' in imp.name or b'CreateRemoteThread' in imp.name)
-							],
-							"high_entropy_sections": [
-								sec.Name.decode('utf-8', errors='ignore').strip() for sec in pe.sections if sec.get_entropy() > 6.5
-							],
-							"overlay_detected": len(pe.get_overlay()) > 0,
-							"is_packed": any(pe.sections[i].SizeOfRawData == 0 for i in range(len(pe.sections)))
-						}
-						results["results"]["pe_analysis"] = pe_analysis
-						if pe_analysis["suspicious_imports"] or pe_analysis["high_entropy_sections"] or pe_analysis["is_packed"]:
-							results["risk_assessment"]["risk_score"] += 35
-					except pefile.PEFormatError:
-						logger.debug(f"Not a PE file: {file_path}")
+				# PEfile analysis
+				try:
+					pe = pefile.PE(file_path)
+					pe_analysis = {
+						"suspicious_imports": [
+							imp.name.decode('utf-8', errors='ignore') if imp.name else ""
+							for dll in pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']].imports
+							for imp in dll.imports
+							if imp.name and (b'VirtualAlloc' in imp.name or b'CreateRemoteThread' in imp.name)
+						],
+						"high_entropy_sections": [
+							sec.Name.decode('utf-8', errors='ignore').strip() for sec in pe.sections if sec.get_entropy() > 6.5
+						],
+						"overlay_detected": len(pe.get_overlay()) > 0,
+						"is_packed": any(pe.sections[i].SizeOfRawData == 0 for i in range(len(pe.sections)))
+					}
+					results["results"]["pe_analysis"] = pe_analysis
+					if pe_analysis["suspicious_imports"] or pe_analysis["high_entropy_sections"] or pe_analysis["is_packed"]:
+						results["risk_assessment"]["risk_score"] += 35
+				except pefile.PEFormatError:
+					print(f"Not a PE file: {file_path}")
 
-				# IOC extraction (skip for random data unless specific YARA matches)
-				if not is_random_data or any(m["severity"] in ["HIGH", "MEDIUM"] for m in yara_matches):
-					try:
-						iocs = {
-							"urls": [u.decode('utf-8', errors='ignore') for u in re.findall(
-								b"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+", content
-							)],
-							"ips": [i.decode('utf-8') for i in re.findall(
-								b"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", content
-							) if self._is_valid_ip(i.decode('utf-8'))]
-						}
-						results["results"]["extracted_iocs"] = iocs
-						if iocs["urls"] or iocs["ips"]:
-							results["risk_assessment"]["risk_score"] += 15
-					except Exception as e:
-						logger.warning(f"IOC extraction failed for {file_path}: {e}")
-
-				if is_random_data and results["risk_assessment"]["risk_score"] <= 15:
-					results["risk_assessment"]["risk_score"] = 0
-					results["risk_assessment"]["threat_classification"] = "RANDOM_DATA"
-					logger.info(f"Classified {file_path} as random data, resetting risk score")
+				# IOC extraction
+				try:
+					with open(file_path, "rb") as f:
+						content = f.read()
+					iocs = {
+						"urls": [u.decode('utf-8', errors='ignore') for u in re.findall(
+							b"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+", content
+						)],
+						"ips": [i.decode('utf-8') for i in re.findall(
+							b"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", content
+						) if self._is_valid_ip(i.decode('utf-8'))]
+					}
+					results["results"]["extracted_iocs"] = iocs
+					if iocs["urls"] or iocs["ips"]:
+						results["risk_assessment"]["risk_score"] += 15
+				except Exception as e:
+					logger.warning(f"IOC extraction failed for {file_path}: {e}")
 
 				# Calculate risk level
 				score = results["risk_assessment"]["risk_score"]
 				if score > 70:
 					results["risk_assessment"]["risk_level"] = "HIGH"
 					results["risk_assessment"]["recommendation"] = "QUARANTINE"
-				elif score > 50:
+				elif score > 40:
 					results["risk_assessment"]["risk_level"] = "MEDIUM"
-					results["risk_assessment"]["recommendation"] = "REVIEW"
-				else:
-					results["risk_assessment"]["risk_level"] = "LOW"
-					results["risk_assessment"]["recommendation"] = "MONITOR"
 
 			results["duration_ms"] = int((time.time() - start_time) * 1000)
 			return results
