@@ -27,8 +27,6 @@ PROCESSING_DIR = "/analysis/processed/"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(PROCESSING_DIR, exist_ok=True)
 
-logger = setup_logging("static_analyzer")
-
 class StaticAnalyzer:
 	def __init__(self):
 		self.rules = self._compile_yara_rules()
