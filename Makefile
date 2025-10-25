@@ -123,20 +123,17 @@ check-venv:
 
 sandbox-up:
 	@echo "${YELLOW}🚀 Starting malware sandbox container...${RESET}"
-	@$(DOCKER_COMPOSE) up -d sandbox
+	@$(DOCKER_COMPOSE) up -d
 	@echo "${APPLE_GREEN}✅ Sandbox container started${RESET}"
 
 sandbox-down:
 	@echo "${BLUE}🛑 Stopping sandbox container...${RESET}"
-	@$(DOCKER_COMPOSE) down sandbox
+	@$(DOCKER_COMPOSE) down
 	@echo "${YELLOW}✨ Sandbox stopped${RESET}"
-
-sandbox-logs:
-	@$(DOCKER_COMPOSE) logs -f sandbox
 
 sandbox-rebuild:
 	@echo "${BLUE}🔨 Rebuilding sandbox image...${RESET}"
-	@$(DOCKER_COMPOSE) build --no-cache sandbox
+	@$(DOCKER_COMPOSE) build --no-cache
 	@echo "${APPLE_GREEN}✅ Sandbox rebuilt${RESET}"
 
 ################################################################################
@@ -189,6 +186,7 @@ clean-all: clean
 	@echo "${BLUE}🧹 Complete cleanup...${RESET}"
 	@make sandbox-down
 	@docker rmi malware-sandbox:latest 2>/dev/null || true
+	@docker system prune -af --volumes 2>/dev/null || true
 	@rm -rf $(VENV)
 	@rm -rf $(SHARED_DIR) 2>/dev/null || true
 	@rm -rf config 2>/dev/null || true
