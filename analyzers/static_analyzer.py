@@ -113,7 +113,7 @@ class StaticAnalyzer:
 					"threat_classification": "UNKNOWN",
 					"recommendation": "MONITOR"
 				},
-				"status": "completed",
+				"status": "analyzed",
 				"tools_used": ["yara", "pefile"],
 				"duration_ms": 0
 			}
