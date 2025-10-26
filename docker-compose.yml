@@ -9,36 +9,12 @@ services:
       - ${HOME}/malware-analysis/logs:/analysis/logs
       - ${HOME}/malware-analysis/queue:/analysis/input
       - ${HOME}/malware-analysis/static-output:/analysis/static-output
-      - ${HOME}/malware-analysis/dynamic-output:/analysis/dynamic-output
     user: "1000:1000"
     network_mode: none
+    mem_limit: 5g
+    mem_reservation: 3g
+    cpus: 2.0 
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges
-
-volumes:
-  analysis-logs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${HOME}/malware-analysis/logs
-  analysis-queue:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${HOME}/malware-analysis/queue
-  static-output:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${HOME}/malware-analysis/static-output
-  dynamic-output:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${HOME}/malware-analysis/dynamic-output
