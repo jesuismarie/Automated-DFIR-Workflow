@@ -33,7 +33,7 @@ all: venv setup run
 
 help:
 	@echo "${MAGENTA}================================================================================${RESET}"
-	@echo "${MAGENTA}| Automated DFIR Workflow Commands                                             |${RESET}"
+	@echo "${MAGENTA}| Automated Malware Analysis Workflow Commands                                 |${RESET}"
 	@echo "${MAGENTA}================================================================================${RESET}"
 	@echo "${MAGENTA}| ${YELLOW}make help${RESET}         : Show this help message.                                  ${MAGENTA}|${RESET}"
 	@echo "${MAGENTA}| ${YELLOW}make venv${RESET}         : Create virtual environment and install dependencies.     ${MAGENTA}|${RESET}"
@@ -41,7 +41,6 @@ help:
 	@echo "${MAGENTA}| ${YELLOW}make setup${RESET}        : Setup shared directories and configuration.              ${MAGENTA}|${RESET}"
 	@echo "${MAGENTA}| ${YELLOW}make run${RESET}          : Run full workflow (monitor → analyze → report).          ${MAGENTA}|${RESET}"
 	@echo "${MAGENTA}| ${YELLOW}make monitor${RESET}      : Run only monitoring phase.                               ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make analyze${RESET}      : Run static and dynamic analysis on queued files.         ${MAGENTA}|${RESET}"
 	@echo "${MAGENTA}| ${YELLOW}make report${RESET}       : Generate analysis reports and alerts.                    ${MAGENTA}|${RESET}"
 	@echo "${MAGENTA}| ${YELLOW}make clean${RESET}        : Remove generated files (keep venv).                      ${MAGENTA}|${RESET}"
 	@echo "${MAGENTA}| ${YELLOW}make clean-all${RESET}    : Full cleanup (remove venv and all generated data).       ${MAGENTA}|${RESET}"
@@ -85,14 +84,13 @@ setup-shared:
 	@echo "${BLUE}Setting up shared directories: $(SHARED_DIR)${RESET}"
 	@$(MKDIR) "$(SHARED_DIR)/queue/files"
 	@$(MKDIR) "$(SHARED_DIR)/static-output"
-	@$(MKDIR) "$(SHARED_DIR)/dynamic-output"
 	@$(MKDIR) "$(SHARED_DIR)/reports"
 	@$(MKDIR) "$(SHARED_DIR)/logs"
 	@$(TOUCH) "$(QUEUE_FILE)"
 	@echo "[]" > "$(QUEUE_FILE)"
 	@$(CHOWN) 1000:1000 -R "$(SHARED_DIR)"
 	@chmod 755 "$(SHARED_DIR)"
-	@chmod -R 755 "$(SHARED_DIR)/queue" "$(SHARED_DIR)/static-output" "$(SHARED_DIR)/dynamic-output" "$(SHARED_DIR)/reports" "$(SHARED_DIR)/logs"
+	@chmod -R 755 "$(SHARED_DIR)/queue" "$(SHARED_DIR)/static-output" "$(SHARED_DIR)/reports" "$(SHARED_DIR)/logs"
 	@chmod 644 "$(QUEUE_FILE)"
 	@echo "${APPLE_GREEN}✅ Shared directories ready at: $(SHARED_DIR)${RESET}"
 
@@ -150,20 +148,6 @@ monitor: check-venv check-config
 	@echo "${YELLOW}👀 Starting file monitoring only...${RESET}"
 	@$(PYTHON) -m monitoring.file_watcher
 
-static-analyze: check-venv check-config sandbox-up
-	@echo "${YELLOW}🔍 Running static analysis...${RESET}"
-	@$(PYTHON) -m analyzers.static_analyzer
-
-dynamic-analyze: check-venv check-config sandbox-up
-	@echo "${YELLOW}🔍 Running dynamic analysis...${RESET}"
-	@$(PYTHON) -m analyzers.dynamic_analyzer
-
-analyze: static-analyze dynamic-analyze
-
-report: check-venv check-config
-	@echo "${YELLOW}📊 Generating reports...${RESET}"
-	@$(PYTHON) -m reporting.report_generator
-
 ################################################################################
 # Utility Targets
 ################################################################################
@@ -176,7 +160,7 @@ clean:
 	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@find . -type f -name "*.pyo" -delete 2>/dev/null || true
 	@find . -type f -name "*.log" -delete 2>/dev/null || true
-	@rm -rf "$(SHARED_DIR)/queue/*" "$(SHARED_DIR)/static-output/*" "$(SHARED_DIR)/dynamic-output/*" "$(SHARED_DIR)/reports/*" 2>/dev/null || true
+	@rm -rf "$(SHARED_DIR)/queue/*" "$(SHARED_DIR)/static-output/*" "$(SHARED_DIR)/reports/*" 2>/dev/null || true
 	@if [ -f "$(QUEUE_FILE)" ]; then \
 		echo "[]" > "$(QUEUE_FILE)"; \
 	fi
@@ -196,5 +180,5 @@ clean-all: clean
 	venv check-venv \
 	setup config check-config setup-shared \
 	sandbox-up sandbox-down sandbox-logs sandbox-rebuild \
-	run monitor static-analyze dynamic-analyze analyze report \
+	run monitor \
 	clean clean-all
