@@ -11,6 +11,7 @@ from constants import TEMP_EXTENSIONS, IGN_EXTENSIONS, IGN_DIRS
 from monitoring.config import load_config
 from monitoring.queue_manager import QueueManager
 from monitoring.utils import wait_for_download_completion
+from reporting.report_generator import run_reporter
 
 logger = setup_logging("monitoring")
 
@@ -210,11 +211,12 @@ def start_watcher(config: Dict[str, Any]):
 	observer.start()
 	try:
 		while True:
+			run_reporter()
 			time.sleep(1)
 	except KeyboardInterrupt:
 		observer.stop()
 	observer.join()
-	logger.info("\n[*] File watcher stopped.")
+	logger.info("\n[*] Program stopped by user.")
 
 def main():
 	"""
@@ -223,8 +225,6 @@ def main():
 	try:
 		config = load_config()
 		start_watcher(config)
-	except KeyboardInterrupt:
-		logger.info("Monitoring stopped by user")
 	except Exception as e:
 		logger.error(f"Fatal error: {str(e)}")
 		sys.exit(1)

@@ -1,7 +1,7 @@
 import os
 import json
 import time
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Dict, Any, Optional
 from filelock import FileLock
 
@@ -133,7 +133,7 @@ def build_report(entry: Dict) -> Dict[str, Any]:
 	sha256 = entry["sha256"]
 	report: Dict[str, Any] = {
 		"report_id": f"report-{sha256}",
-		"generated_at": datetime.utcnow().isoformat() + "Z",
+		"generated_at": datetime.now(UTC).isoformat(),
 		"file_info": {
 			"original_path": entry.get("original_path"),
 			"sha256": sha256,
@@ -175,7 +175,7 @@ def build_report(entry: Dict) -> Dict[str, Any]:
 
 	return report
 
-def main() -> None:
+def run_reporter() -> None:
 	logger.info("[*] Report generator started - watching queue.json")
 	while True:
 		try:
@@ -221,9 +221,3 @@ def main() -> None:
 				logger.warning(f"[!] Failed to update queue: {e}")
 
 		time.sleep(10)
-
-if __name__ == "__main__":
-	try:
-		main()
-	except KeyboardInterrupt:
-		logger.info("[*] Report generator stopped by user")
