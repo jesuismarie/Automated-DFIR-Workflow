@@ -1,4 +1,3 @@
-# --- Base image ---
 FROM python:3.11-slim-bookworm
 
 ARG USER=analyzer
@@ -21,7 +20,7 @@ WORKDIR /analysis
 RUN mkdir -p /analysis/processed /analysis/rules /analysis/analyzers && \
 	chown -R ${USER}:${USER} /analysis
 
-RUN git clone --depth 1 https://github.com/Yara-Rules/rules /analysis/rules && \
+RUN git clone https://github.com/Yara-Rules/rules /analysis/rules/ && \
 	find /analysis/rules -type f -name "*.yar" -exec yara -c {} \; || true
 
 COPY analyzers /analysis/analyzers
