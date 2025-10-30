@@ -11,9 +11,6 @@ services:
       - ${HOME}/malware-analysis/static-output:/analysis/static-output
     user: "1000:1000"
     network_mode: none
-    mem_limit: 5g
-    mem_reservation: 3g
-    cpus: 2.0 
     cap_drop:
       - ALL
     security_opt:

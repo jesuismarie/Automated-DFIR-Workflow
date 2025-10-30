@@ -1,32 +1,28 @@
+# --- Base image ---
 FROM python:3.11-slim-bookworm
 
 ARG USER=analyzer
 ARG UID=1000
 ARG GID=1000
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-	build-essential \
-	git \
-	libssl-dev \
-	libffi-dev \
-	libmagic1 \
-	yara \
-	inotify-tools \
-	unzip \
-	p7zip-full \
-	file \
-	&& rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+	apt-get install -y --no-install-recommends \
+		build-essential git \
+		libssl-dev libffi-dev \
+		libmagic1 file \
+		inotify-tools yara \
+		unzip p7zip-full && \
+	rm -rf /var/lib/apt/lists/*
 
-RUN groupadd -g ${GID} ${USER} || true \
-	&& useradd -m -u ${UID} -g ${GID} -s /bin/bash ${USER} || true
-
-RUN mkdir -p /analysis/processed /analysis/rules /analysis/analyzers \
-	&& chown -R ${USER}:${USER} /analysis
+RUN groupadd -g ${GID} ${USER} && useradd -m -u ${UID} -g ${GID} -s /bin/bash ${USER}
 
 WORKDIR /analysis
 
-RUN git clone https://github.com/Yara-Rules/rules /analysis/rules/
-RUN find /analysis/rules -name "*.yar" -exec yara -c {} \; || true
+RUN mkdir -p /analysis/processed /analysis/rules /analysis/analyzers && \
+	chown -R ${USER}:${USER} /analysis
+
+RUN git clone --depth 1 https://github.com/Yara-Rules/rules /analysis/rules && \
+	find /analysis/rules -type f -name "*.yar" -exec yara -c {} \; || true
 
 COPY analyzers /analysis/analyzers
 COPY logger.py /analysis/analyzers/logger.py
@@ -34,7 +30,7 @@ COPY sandbox/entrypoint.sh /analysis/entrypoint.sh
 COPY sandbox/requirements.txt /analysis/requirements.txt
 
 RUN pip install --upgrade pip && \
-pip install --no-cache-dir -r /analysis/requirements.txt
+	pip install --no-cache-dir -r /analysis/requirements.txt
 
 RUN chmod +x /analysis/entrypoint.sh
 
