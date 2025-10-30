@@ -144,7 +144,7 @@ run: check-venv check-config sandbox-up
 	@echo "${YELLOW}📤 Shared:    $(SHARED_DIR)${RESET}"
 	@make monitor
 
-monitor: check-venv check-config
+monitor: check-venv check-config sandbox-up
 	@echo "${YELLOW}👀 Starting file monitoring only...${RESET}"
 	@$(PYTHON) -m monitoring.file_watcher
 
