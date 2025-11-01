@@ -5,15 +5,17 @@ import time
 import yara
 import magic
 import shutil
+import string
 import pefile
 import rarfile
 import tarfile
 import hashlib
 import tempfile
 import ipaddress
+from zipfile import ZipFile
 from typing import Dict, Any
 from filelock import FileLock
-from zipfile import ZipFile
+from urllib.parse import urlparse
 
 from logger import setup_logging
 
@@ -73,6 +75,141 @@ class StaticAnalyzer:
 		except Exception as e:
 			logger.error(f"Failed to calculate SHA256 for {file_path}: {e}")
 			raise
+
+	def _extract_strings(self, file_path: str, min_len: int = 4) -> list[str]:
+		"""
+		Extract printable ASCII/UTF-16 strings from a binary file.
+		Returns a deduplicated list of strings >= min_len characters.
+		"""
+		strings_found = set()
+		try:
+			with open(file_path, "rb") as f:
+				data = f.read()
+
+			# Helper to pull strings from a buffer
+			def pull(buf: bytes, encoding: str):
+				txt = buf.decode(encoding, errors="ignore")
+				for match in re.finditer(rf"[{re.escape(string.printable)}]{{{min_len},}}", txt):
+					s = match.group(0).strip()
+					if s:
+						strings_found.add(s)
+
+			# ASCII
+			pull(data, "ascii")
+
+			# UTF-16LE / UTF-16BE (common in PE resources)
+			if len(data) % 2 == 0:
+				pull(data[::2], "utf-16le")
+				pull(data[1::2], "utf-16be")
+
+		except Exception as e:
+			logger.warning(f"String extraction failed for {file_path}: {e}")
+
+		return sorted(strings_found)
+
+	def _extract_iocs(self, content: bytes, strings: list[str]) -> dict:
+		"""
+		Extract a rich set of IOCs from raw bytes *and* from the
+		pre-extracted printable strings.
+		"""
+		iocs = {
+			"urls": [],
+			"domains": [],
+			"emails": [],
+			"ipv4": [],
+			"ipv6": [],
+			"bitcoin": [],
+			"file_paths": [],
+			"registry_keys": [],
+			"mutexes": [],
+			"services": []
+		}
+
+		# 1. URL (http/https/ftp) – liberal regex, then validate with urlparse
+		url_pattern = rb"(?i)(https?://|ftp://)[\w\.\-_%~:/?#\[\]@!$&'()*+,;=]+"
+		for raw in re.finditer(url_pattern, content):
+			try:
+				u = raw.group(0).decode(errors="ignore")
+				p = urlparse(u if u.startswith(("http", "ftp")) else "http://" + u)
+				if p.netloc:
+					iocs["urls"].append(u)
+					# extract domain while we have a parsed URL
+					domain = p.netloc.split(":")[0].lower()
+					if self._is_valid_domain(domain):
+						iocs["domains"].append(domain)
+			except Exception:
+				pass
+
+		# 2. E-mail addresses
+		email_pattern = rb"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+		for m in re.finditer(email_pattern, content):
+			email = m.group(0).decode(errors="ignore").lower()
+			if self._is_valid_domain(email.split("@")[-1]):
+				iocs["emails"].append(email)
+
+		# 3. IPv4 – public only
+		ipv4_pattern = rb"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b"
+		for m in re.finditer(ipv4_pattern, content):
+			ip = m.group(0).decode()
+			if self._is_valid_ip(ip):
+				iocs["ipv4"].append(ip)
+
+		# 4. IPv6 (compressed & uncompressed)
+		ipv6_pattern = rb"(?i)(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}"
+		for m in re.finditer(ipv6_pattern, content):
+			ip = m.group(0).decode().lower()
+			try:
+				if ipaddress.ip_address(ip).version == 6:
+					iocs["ipv6"].append(ip)
+			except ValueError:
+				pass
+
+		# 5. Bitcoin addresses (P2PKH, P2SH, Bech32)
+		btc_pattern = rb"\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b|\bbc1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{7,}\b"
+		for m in re.finditer(btc_pattern, content):
+			iocs["bitcoin"].append(m.group(0).decode())
+
+		# 6. Windows file paths (drive letter or UNC)
+		path_pattern = rb"([a-zA-Z]:\\[^\\:*?\"<>|]{0,256}|\\\\[.\w-]+\\[^\\/:*?\"<>|]{0,256})"
+		for m in re.finditer(path_pattern, content, re.IGNORECASE):
+			p = m.group(0).decode(errors="ignore")
+			iocs["file_paths"].append(p)
+
+		# 7. Registry keys
+		reg_pattern = rb"HKEY_[A-Z_]+\\[^\\]{0,256}"
+		for m in re.finditer(reg_pattern, content, re.IGNORECASE):
+			iocs["registry_keys"].append(m.group(0).decode(errors="ignore"))
+
+		# 8. Mutex / Service names (common patterns)
+		for s in strings:
+			# Mutexes often look like Global\{GUID} or simple uppercase names
+			if re.match(r"^(Global\\)?\{?[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}\}?$", s, re.I):
+				iocs["mutexes"].append(s)
+			# Windows service names – alphanumeric + underscores, often end with “Svc”
+			if re.match(r"^[A-Za-z][\w-]{0,63}$", s) and s.lower().endswith(("svc", "service")):
+				iocs["services"].append(s)
+
+		# Deduplicate all lists
+		for key in iocs:
+			iocs[key] = list(dict.fromkeys(iocs[key]))
+
+		return iocs
+
+	# Helper: simple domain validation (TLD list optional)
+	def _is_valid_domain(self, domain: str) -> bool:
+		if not domain or domain.startswith(".") or domain.endswith("."):
+			return False
+		try:
+			# Very small TLD whitelist – expand as needed
+			tlds = {
+				"com","net","org","edu","gov","mil","info","biz","name",
+				"io","ai","co","uk","de","fr","ru","cn","jp","br","au"
+			}
+			label = domain.strip().lower().split(":")[0]
+			return "." in label and label.split(".")[-1] in tlds
+		except Exception:
+			return False
+
 
 	def _is_valid_ip(self, ip_str: str) -> bool:
 		"""
@@ -190,35 +327,39 @@ class StaticAnalyzer:
 							for imp in dll.imports
 							if imp.name and (b'VirtualAlloc' in imp.name or b'CreateRemoteThread' in imp.name)
 						],
-						"high_entropy_sections": [
-							sec.Name.decode('utf-8', errors='ignore').strip() for sec in pe.sections if sec.get_entropy() > 6.5
-						],
 						"overlay_detected": len(pe.get_overlay()) > 0,
 						"is_packed": any(pe.sections[i].SizeOfRawData == 0 for i in range(len(pe.sections)))
 					}
 					results["results"]["pe_analysis"] = pe_analysis
-					if pe_analysis["suspicious_imports"] or pe_analysis["high_entropy_sections"] or pe_analysis["is_packed"]:
+					if pe_analysis["suspicious_imports"] or pe_analysis["is_packed"]:
 						results["risk_assessment"]["risk_score"] += 35
 				except pefile.PEFormatError:
 					print(f"Not a PE file: {file_path}")
 
 				# IOC extraction
 				try:
+					printable_strings = self._extract_strings(file_path)
+
 					with open(file_path, "rb") as f:
-						content = f.read()
-					iocs = {
-						"urls": [u.decode('utf-8', errors='ignore') for u in re.findall(
-							b"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+", content
-						)],
-						"ips": [i.decode('utf-8') for i in re.findall(
-							b"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b", content
-						) if self._is_valid_ip(i.decode('utf-8'))]
+						raw_bytes = f.read()
+
+					rich_iocs = self._extract_iocs(raw_bytes, printable_strings)
+
+					legacy_iocs = {
+						"urls": rich_iocs["urls"],
+						"ips": rich_iocs["ipv4"] + rich_iocs["ipv6"]
 					}
-					results["results"]["extracted_iocs"] = iocs
-					if iocs["urls"] or iocs["ips"]:
-						results["risk_assessment"]["risk_score"] += 15
+
+					results["results"]["extracted_strings"] = printable_strings[:500]  # cap
+					results["results"]["extracted_iocs"] = {**legacy_iocs, **rich_iocs}
+
+					ioc_count = sum(len(v) for k, v in rich_iocs.items()
+									if k not in ("file_paths", "services"))
+					if ioc_count:
+						results["risk_assessment"]["risk_score"] += min(ioc_count * 3, 30)
+
 				except Exception as e:
-					logger.warning(f"IOC extraction failed for {file_path}: {e}")
+					logger.warning(f"String/IOC extraction failed for {file_path}: {e}")
 
 				# Calculate risk level
 				score = results["risk_assessment"]["risk_score"]
