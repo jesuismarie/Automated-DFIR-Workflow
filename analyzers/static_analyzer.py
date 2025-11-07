@@ -6,7 +6,6 @@ import yara
 import magic
 import shutil
 import string
-import pefile
 import rarfile
 import tarfile
 import hashlib
@@ -223,7 +222,7 @@ class StaticAnalyzer:
 
 	def analyze_file(self, file_path: str, sha256: str, depth: int = 0, max_depth: int = 3) -> Dict[str, Any]:
 		"""
-		Analyze a file, handling archives recursively and applying YARA and PE analysis.
+		Analyze a file, handling archives recursively and applying YARA analysis.
 		"""
 		if depth > max_depth:
 			logger.warning(f"Max recursion depth reached for {file_path}")
@@ -240,7 +239,6 @@ class StaticAnalyzer:
 				},
 				"results": {
 					"yara_matches": [],
-					"pe_analysis": {},
 					"extracted_iocs": {},
 					"sub_files": []
 				},
@@ -251,7 +249,7 @@ class StaticAnalyzer:
 					"recommendation": "MONITOR"
 				},
 				"status": "analyzed",
-				"tools_used": ["yara", "pefile"],
+				"tools_used": ["yara"],
 				"duration_ms": 0
 			}
 
@@ -316,25 +314,6 @@ class StaticAnalyzer:
 				results["results"]["yara_matches"] = yara_matches
 				if yara_matches:
 					results["risk_assessment"]["risk_score"] += 50
-
-				# PEfile analysis
-				try:
-					pe = pefile.PE(file_path)
-					pe_analysis = {
-						"suspicious_imports": [
-							imp.name.decode('utf-8', errors='ignore') if imp.name else ""
-							for dll in pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']].imports
-							for imp in dll.imports
-							if imp.name and (b'VirtualAlloc' in imp.name or b'CreateRemoteThread' in imp.name)
-						],
-						"overlay_detected": len(pe.get_overlay()) > 0,
-						"is_packed": any(pe.sections[i].SizeOfRawData == 0 for i in range(len(pe.sections)))
-					}
-					results["results"]["pe_analysis"] = pe_analysis
-					if pe_analysis["suspicious_imports"] or pe_analysis["is_packed"]:
-						results["risk_assessment"]["risk_score"] += 35
-				except pefile.PEFormatError:
-					print(f"Not a PE file: {file_path}")
 
 				# IOC extraction
 				try:

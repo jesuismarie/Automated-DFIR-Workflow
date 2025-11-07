@@ -116,13 +116,6 @@ def generate_markdown(report: Dict) -> str:
 				md += f"... ({len(strings) - 10} more)\n"
 			md += "```\n\n"
 
-		pe = static.get("pe_info")
-		if pe:
-			md += f"### PE Header Summary\n\n"
-			md += f"- **Sections**: {len(pe.get('sections', []))}\n"
-			md += f"- **Imports**: {len(pe.get('imports', []))}\n"
-			md += f"- **Entry Point**: `0x{pe.get('entry_point', '0'):x}`\n\n"
-
 	else:
 		md += f"## Static Analysis\n\n*No static analysis available.*\n\n"
 

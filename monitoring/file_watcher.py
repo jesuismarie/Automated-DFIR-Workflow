@@ -8,7 +8,6 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from logger import setup_logging
 from constants import TEMP_EXTENSIONS, IGN_EXTENSIONS, IGN_DIRS
-from monitoring.config import load_config
 from monitoring.queue_manager import QueueManager
 from monitoring.utils import wait_for_download_completion
 from reporting.report_generator import run_reporter
@@ -217,17 +216,3 @@ def start_watcher(config: Dict[str, Any]):
 		observer.stop()
 	observer.join()
 	logger.info("\n[*] Program stopped by user.")
-
-def main():
-	"""
-	Main entry point.
-	"""
-	try:
-		config = load_config()
-		start_watcher(config)
-	except Exception as e:
-		logger.error(f"Fatal error: {str(e)}")
-		sys.exit(1)
-
-if __name__ == "__main__":
-	main()
