@@ -188,10 +188,10 @@ Fork the repo, create a branch, and submit a pull request.
 
 ```bash
 git checkout -b feature/new-analyzer
-git commit -m "Add new static analyzer module"
+git commit -m "Add new feature"
 git push origin feature/new-analyzer
 ```
 
 ## License
 
-This project is licensed under the **MIT License** — see the `LICENSE` file for details.
+This project is licensed under the **MIT License** — see the [`LICENSE`](./LICENSE) file for details.
