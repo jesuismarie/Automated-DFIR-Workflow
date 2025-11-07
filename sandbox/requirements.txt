@@ -2,4 +2,3 @@ rarfile
 filelock
 python-magic
 yara-python
-pefile
