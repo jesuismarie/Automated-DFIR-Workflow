@@ -32,19 +32,17 @@ APPLE_GREEN	= \033[38;2;141;182;0m
 all: venv setup run
 
 help:
-	@echo "${MAGENTA}================================================================================${RESET}"
-	@echo "${MAGENTA}| Automated Malware Analysis Workflow Commands                                 |${RESET}"
-	@echo "${MAGENTA}================================================================================${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make help${RESET}         : Show this help message.                                  ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make venv${RESET}         : Create virtual environment and install dependencies.     ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make config${RESET}       : Create default config file if missing.                   ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make setup${RESET}        : Setup shared directories and configuration.              ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make run${RESET}          : Run full workflow (monitor → analyze → report).          ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make monitor${RESET}      : Run only monitoring phase.                               ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make report${RESET}       : Generate analysis reports and alerts.                    ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make clean${RESET}        : Remove generated files (keep venv).                      ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}| ${YELLOW}make clean-all${RESET}    : Full cleanup (remove venv and all generated data).       ${MAGENTA}|${RESET}"
-	@echo "${MAGENTA}================================================================================${RESET}"
+	@echo "${MAGENTA}=================================================================================${RESET}"
+	@echo "${MAGENTA}| Automated Malware Analysis Workflow Commands                                  |${RESET}"
+	@echo "${MAGENTA}=================================================================================${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make help${RESET}         : Show this help message.                                   ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make venv${RESET}         : Create virtual environment and install dependencies.      ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make config${RESET}       : Create default config file if missing.                    ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make setup${RESET}        : Setup shared directories and configuration.               ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make run${RESET}          : Run full workflow (monitor → analyze → report).           ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make clean${RESET}        : Remove generated files (keep venv).                       ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}| ${YELLOW}make clean-all${RESET}    : Full cleanup (remove venv and all generated data).        ${MAGENTA}|${RESET}"
+	@echo "${MAGENTA}=================================================================================${RESET}"
 	@echo ""
 	@echo "${MAGENTA}Configuration: Reads from ${YELLOW}config/config.json${RESET}"
 	@echo "${YELLOW}• Monitored directory:${RESET} ${MONITORED_DIR}"
@@ -142,11 +140,8 @@ run: check-venv check-config sandbox-up
 	@echo "${YELLOW}▶️ Starting Automated DFIR Workflow...${RESET}"
 	@echo "${YELLOW}📁 Monitoring: $(MONITORED_DIR)${RESET}"
 	@echo "${YELLOW}📤 Shared:    $(SHARED_DIR)${RESET}"
-	@make monitor
-
-monitor: check-venv check-config sandbox-up
 	@echo "${YELLOW}👀 Starting file monitoring only...${RESET}"
-	@$(PYTHON) -m monitoring.file_watcher
+	@$(PYTHON) -m main
 
 ################################################################################
 # Utility Targets
