@@ -65,9 +65,7 @@ You can launch individual phases or the full workflow via `make`:
 | `make config`     | Generate default `config.json` if missing.           |
 | `make setup`      | Set up directories and configurations.               |
 | `make run`        | Execute full workflow (monitor → analyze → report).  |
-| `make monitor`    | Start the real-time file watcher.                    |
 | `make sandbox-up` | Build and run the Docker sandbox.                    |
-| `make report`     | Generate human-readable reports.                     |
 | `make clean`      | Remove temporary files (keep venv).                  |
 | `make clean-all`  | Full cleanup including venv.                         |
 
